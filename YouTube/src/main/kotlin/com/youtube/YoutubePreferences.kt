@@ -23,6 +23,8 @@ object YoutubePreferences {
     private const val KEY_SHOW_MOVIES = "show_movies"
     private const val KEY_SHOW_PODCASTS = "show_podcasts"
     private const val KEY_SHOW_LIVE = "show_live"
+    private const val KEY_PREFERRED_QUALITY = "preferred_video_quality"
+    private const val KEY_PREFERRED_SUBTITLE = "preferred_subtitle_lang"
 
     private var prefs: SharedPreferences? = null
 
@@ -119,6 +121,16 @@ object YoutubePreferences {
     var showLive: Boolean
         get() = prefs?.getBoolean(KEY_SHOW_LIVE, true) ?: true
         set(value) { prefs?.edit()?.putBoolean(KEY_SHOW_LIVE, value)?.apply() }
+
+    // Preferred video resolution: "Auto", "2160p (4K)", "1440p (2K)", "1080p", "720p", "480p", "360p"
+    var preferredQuality: String
+        get() = prefs?.getString(KEY_PREFERRED_QUALITY, "1080p") ?: "1080p"
+        set(value) { prefs?.edit()?.putString(KEY_PREFERRED_QUALITY, value)?.apply() }
+
+    // Preferred subtitle language: "English", "Spanish", "Tamil", "Hindi", "None", "Auto"
+    var preferredSubtitle: String
+        get() = prefs?.getString(KEY_PREFERRED_SUBTITLE, "English") ?: "English"
+        set(value) { prefs?.edit()?.putString(KEY_PREFERRED_SUBTITLE, value)?.apply() }
 
     fun resetToDefaults() {
         prefs?.edit()?.clear()?.apply()

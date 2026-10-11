@@ -17,6 +17,7 @@ import org.schabi.newpipe.extractor.kiosk.KioskExtractor
 import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import java.util.concurrent.ConcurrentHashMap
 
 class YoutubeProvider : MainAPI() {
     override var mainUrl = "https://www.youtube.com"
@@ -30,6 +31,18 @@ class YoutubeProvider : MainAPI() {
         TvType.Live,
         TvType.TvSeries
     )
+
+    companion object {
+        // High-speed in-memory caches (5-minute TTL)
+        private val channelVideosCache = ConcurrentHashMap<String, Pair<Long, List<SearchResponse>>>()
+        private var combinedSubCache: Pair<Long, List<SearchResponse>>? = null
+        private const val CACHE_TTL_MS = 5 * 60 * 1000L // 5 minutes
+
+        fun clearFeedCache() {
+            channelVideosCache.clear()
+            combinedSubCache = null
+        }
+    }
 
     init {
         ensureDownloaderInitialized()
@@ -99,7 +112,6 @@ class YoutubeProvider : MainAPI() {
             rows.add(MainPageData("Live Streams", "kiosk:live", horizontalImages = true))
         }
 
-        // Fallback row if everything is turned off
         if (rows.isEmpty()) {
             rows.add(MainPageData("Trending", "kiosk:Trending", horizontalImages = true))
         }
@@ -170,8 +182,17 @@ class YoutubeProvider : MainAPI() {
         )
     }
 
-    // Fetches recent uploads from all subscribed channels concurrently and interleaves them
+    // High-speed cached combined subscriptions feed
     private suspend fun getCombinedSubscriptionsFeed(headerTitle: String): HomePageResponse {
+        val now = System.currentTimeMillis()
+        val cached = combinedSubCache
+        if (cached != null && (now - cached.first) < CACHE_TTL_MS && cached.second.isNotEmpty()) {
+            return newHomePageResponse(
+                listOf(HomePageList(headerTitle, cached.second, isHorizontalImages = true)),
+                hasNext = false
+            )
+        }
+
         val channels = YoutubePreferences.getSubscribedChannels()
         if (channels.isEmpty()) {
             return newHomePageResponse(
@@ -189,7 +210,7 @@ class YoutubeProvider : MainAPI() {
         val collectedVideos: List<List<SearchResponse>> = coroutineScope {
             channels.map { channel ->
                 async {
-                    fetchRecentChannelVideos(channel.url, limit = 8)
+                    fetchRecentChannelVideos(channel.url, limit = 10)
                 }
             }.map { deferred ->
                 try {
@@ -200,7 +221,7 @@ class YoutubeProvider : MainAPI() {
             }
         }
 
-        // Interleave videos from each channel so the feed has a rich mix of content
+        // Interleave videos from each channel
         val combinedItems = mutableListOf<SearchResponse>()
         var index = 0
         var hasMore = true
@@ -216,6 +237,7 @@ class YoutubeProvider : MainAPI() {
         }
 
         val distinctItems = combinedItems.distinctBy { it.url }
+        combinedSubCache = Pair(now, distinctItems)
 
         return newHomePageResponse(
             listOf(
@@ -230,7 +252,7 @@ class YoutubeProvider : MainAPI() {
     }
 
     private suspend fun getSingleChannelFeed(headerTitle: String, channelUrl: String): HomePageResponse {
-        val items = fetchRecentChannelVideos(channelUrl, limit = 20)
+        val items = fetchRecentChannelVideos(channelUrl, limit = 25)
         return newHomePageResponse(
             listOf(
                 HomePageList(
@@ -243,7 +265,13 @@ class YoutubeProvider : MainAPI() {
         )
     }
 
-    private suspend fun fetchRecentChannelVideos(channelUrl: String, limit: Int = 15): List<SearchResponse> {
+    private suspend fun fetchRecentChannelVideos(channelUrl: String, limit: Int = 20): List<SearchResponse> {
+        val now = System.currentTimeMillis()
+        val cached = channelVideosCache[channelUrl]
+        if (cached != null && (now - cached.first) < CACHE_TTL_MS && cached.second.isNotEmpty()) {
+            return cached.second
+        }
+
         return try {
             val extractor = service.getChannelExtractor(channelUrl)
             extractor.fetchPage()
@@ -254,28 +282,47 @@ class YoutubeProvider : MainAPI() {
 
             val videosExtractor = service.getChannelTabExtractor(videosTab)
             val page = videosExtractor.initialPage
-            page.items.take(limit).mapNotNull { it.toSearchResponse() }
+            val list = page.items.take(limit).mapNotNull { it.toSearchResponse() }
+            channelVideosCache[channelUrl] = Pair(now, list)
+            list
         } catch (_: Exception) {
             emptyList()
         }
     }
 
+    // Multi-page rich search returning comprehensive catalog of results
     override suspend fun search(query: String): List<SearchResponse> {
         ensureDownloaderInitialized()
         val extractor = service.getSearchExtractor(query)
 
-        val pageData = try {
+        val allItems = mutableListOf<SearchResponse>()
+        try {
             extractor.fetchPage()
-            extractor.initialPage
-        } catch (_: Exception) {
-            return emptyList()
-        }
+            var page = extractor.initialPage
+            allItems.addAll(page.items.mapNotNull { it.toSearchResponse() })
 
-        return pageData.items.mapNotNull { it.toSearchResponse() }
+            // Multi-page traversal to retrieve full catalog of search results (up to 4 pages ~80 items)
+            var pagesLoaded = 1
+            val maxSearchPages = 4
+            while (page.hasNextPage() && pagesLoaded < maxSearchPages) {
+                page = extractor.getPage(page.nextPage)
+                allItems.addAll(page.items.mapNotNull { it.toSearchResponse() })
+                pagesLoaded++
+            }
+        } catch (_: Exception) {}
+
+        return allItems.distinctBy { it.url }
     }
 
     override suspend fun quickSearch(query: String): List<SearchResponse>? {
-        return search(query)
+        ensureDownloaderInitialized()
+        return try {
+            val extractor = service.getSearchExtractor(query)
+            extractor.fetchPage()
+            extractor.initialPage.items.take(15).mapNotNull { it.toSearchResponse() }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     private fun getKioskExtractor(kioskId: String?): KioskExtractor<out InfoItem> {
@@ -355,7 +402,31 @@ class YoutubeProvider : MainAPI() {
         val videoTitle = info.name ?: "YouTube Video"
         val videoDescription = info.description?.content.toString()
         val poster = info.thumbnails.lastOrNull()?.url
-        val videoDuration = info.duration.coerceAtLeast(0).toInt()
+
+        // CRITICAL RUNTIME FIX:
+        // CloudStream expects runtime in MINUTES for movies!
+        // info.duration is in SECONDS. (e.g. 309 seconds = 5m 09s).
+        // Passing 309 raw seconds resulted in CloudStream showing 5h 9m (309 / 60 = 5h 9m).
+        // Correct conversion to minutes:
+        val durationMinutes = if (info.duration > 0) {
+            Math.round(info.duration / 60.0).toInt().coerceAtLeast(1)
+        } else null
+
+        val exactDurationText = if (info.duration > 0) {
+            val totalSeconds = info.duration
+            val hours = totalSeconds / 3600
+            val minutes = (totalSeconds % 3600) / 60
+            val seconds = totalSeconds % 60
+            if (hours > 0) {
+                "${hours}h ${minutes}m ${seconds.toString().padStart(2, '0')}s"
+            } else {
+                "${minutes}m ${seconds.toString().padStart(2, '0')}s"
+            }
+        } else ""
+
+        val enrichedPlot = if (exactDurationText.isNotBlank()) {
+            "⏱️ Runtime: $exactDurationText\n\n$videoDescription"
+        } else videoDescription
 
         return newMovieLoadResponse(
             videoTitle,
@@ -363,10 +434,10 @@ class YoutubeProvider : MainAPI() {
             if (isLive) TvType.Live else TvType.Others,
             url
         ) {
-            this.plot = videoDescription
+            this.plot = enrichedPlot
             this.posterUrl = poster
             this.backgroundPosterUrl = poster
-            this.duration = videoDuration
+            this.duration = durationMinutes
 
             // Connect channel / uploader as Person / Actor
             info.uploaderName?.takeIf { it.isNotBlank() }?.let { uploader ->
@@ -527,11 +598,15 @@ class YoutubeProvider : MainAPI() {
             }
         } catch (_: Throwable) {}
 
-        // 2. Direct NewPipeExtractor Stream Resolution (Progressive streams, DASH, multi-audio tracks, HLS, Subtitles)
+        // 2. Direct NewPipeExtractor Stream Resolution
         try {
             val extractor = service.getStreamExtractor(videoUrl)
             extractor.fetchPage()
             val info = StreamInfo.getInfo(extractor)
+
+            // Preferred settings from user
+            val preferredQuality = YoutubePreferences.preferredQuality
+            val preferredSubtitleLang = YoutubePreferences.preferredSubtitle
 
             // A. Live HLS Master Playlist
             val hlsUrl = info.hlsUrl
@@ -567,16 +642,32 @@ class YoutubeProvider : MainAPI() {
                 linkFound = true
             }
 
-            // C. Progressive Video Streams (Contains combined audio + video)
-            info.videoStreams?.forEach { stream ->
+            // C. Progressive Video Streams (Sorted so user's preferred quality is at top)
+            val sortedStreams = info.videoStreams?.sortedByDescending { stream ->
+                val res = stream.resolution ?: ""
+                when {
+                    preferredQuality != "Auto" && res.contains(preferredQuality) -> 1000
+                    res.contains("2160") -> 900
+                    res.contains("1440") -> 800
+                    res.contains("1080") -> 700
+                    res.contains("720") -> 600
+                    res.contains("480") -> 500
+                    res.contains("360") -> 400
+                    else -> 100
+                }
+            }
+
+            sortedStreams?.forEach { stream ->
                 val fpsTag = if (stream.fps > 30) " ${stream.fps}fps" else ""
                 val formatTag = stream.format?.name ?: "MP4"
                 val qualityNum = parseQuality(stream.resolution)
+                val isPreferred = preferredQuality != "Auto" && (stream.resolution ?: "").contains(preferredQuality)
+                val prefBadge = if (isPreferred) " ⭐" else ""
 
                 callback(
                     newExtractorLink(
                         source = name,
-                        name = "$name ${stream.resolution ?: ""}$fpsTag ($formatTag)",
+                        name = "$name ${stream.resolution ?: ""}$fpsTag ($formatTag)$prefBadge",
                         url = stream.content,
                         type = ExtractorLinkType.VIDEO
                     ) {
@@ -587,7 +678,7 @@ class YoutubeProvider : MainAPI() {
                 linkFound = true
             }
 
-            // D. Multi-Language Audio Tracks with exact language & codec labels
+            // D. Multi-Language Audio Tracks
             info.audioStreams?.forEach { stream ->
                 val trackName = stream.audioTrackName?.takeIf { it.isNotBlank() }
                     ?: stream.audioLocale?.displayName?.takeIf { it.isNotBlank() }
@@ -612,8 +703,15 @@ class YoutubeProvider : MainAPI() {
                 linkFound = true
             }
 
-            // E. Subtitles / Closed Captions with full language display labels & auto-generated status
-            info.subtitles?.forEach { sub ->
+            // E. Subtitles / Closed Captions (Sorted so user's preferred language is served first)
+            val sortedSubtitles = info.subtitles?.sortedByDescending { sub ->
+                val lang = sub.displayLanguageName ?: sub.languageTag ?: ""
+                if (preferredSubtitleLang != "None" && preferredSubtitleLang != "Auto" && lang.contains(preferredSubtitleLang, ignoreCase = true)) {
+                    100
+                } else 10
+            }
+
+            sortedSubtitles?.forEach { sub ->
                 val autoTag = if (sub.isAutoGenerated) " (Auto-generated)" else ""
                 val langName = "${sub.displayLanguageName ?: sub.languageTag ?: "English"}$autoTag"
 
