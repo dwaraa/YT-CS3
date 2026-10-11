@@ -1,19 +1,21 @@
 package com.youtube
 
+import android.app.AlertDialog
+import android.app.Dialog
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.*
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.ServiceList
+import kotlin.concurrent.thread
 
 object YoutubeSettings {
 
@@ -30,7 +32,7 @@ object YoutubeSettings {
     }
 
     fun show(context: Context) {
-        val dialog = BottomSheetDialog(context)
+        val dialog = Dialog(context, android.R.style.Theme_Translucent_NoTitleBar)
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -89,7 +91,7 @@ object YoutubeSettings {
             title = "Preferred Video Quality",
             currentValue = qualityOptions[currentQualityIndex]
         ) { textBadge ->
-            val popup = android.app.AlertDialog.Builder(context)
+            val popup = AlertDialog.Builder(context)
                 .setTitle("Select Preferred Video Quality")
                 .setItems(qualityOptions) { _, idx ->
                     YoutubePreferences.preferredQuality = qualityValues[idx]
@@ -110,7 +112,7 @@ object YoutubeSettings {
             title = "Preferred Subtitle Language",
             currentValue = subtitleOptions[currentSubIndex]
         ) { textBadge ->
-            val popup = android.app.AlertDialog.Builder(context)
+            val popup = AlertDialog.Builder(context)
                 .setTitle("Select Preferred Subtitle Language")
                 .setItems(subtitleOptions) { _, idx ->
                     YoutubePreferences.preferredSubtitle = subtitleOptions[idx]
@@ -225,6 +227,17 @@ object YoutubeSettings {
         root.addView(scrollView)
 
         dialog.setContentView(root)
+
+        // Window configuration: Dock to bottom, full width, slide-up animation, dim background
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setGravity(Gravity.BOTTOM)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            setDimAmount(0.6f)
+            setWindowAnimations(android.R.style.Animation_InputMethod)
+        }
+        dialog.setCanceledOnTouchOutside(true)
         dialog.show()
     }
 
@@ -259,7 +272,6 @@ object YoutubeSettings {
             text = title
             setTextColor(Color.WHITE)
             textSize = 14f
-            setTypeface(null, Typeface.NORMAL)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         row.addView(label)
@@ -398,6 +410,7 @@ object YoutubeSettings {
     }
 
     private fun resolveAndAddChannel(context: Context, rawInput: String, onDone: () -> Unit) {
+        val handler = Handler(Looper.getMainLooper())
         Toast.makeText(context, "Resolving channel...", Toast.LENGTH_SHORT).show()
 
         val normalizedUrl = when {
@@ -407,7 +420,7 @@ object YoutubeSettings {
             else -> "https://www.youtube.com/@$rawInput"
         }
 
-        CoroutineScope(Dispatchers.IO).launch {
+        thread {
             var channelName = rawInput.removePrefix("https://www.youtube.com/").removePrefix("@")
             var avatarUrl = ""
 
@@ -428,7 +441,7 @@ object YoutubeSettings {
             YoutubePreferences.addChannel(channel)
             YoutubeProvider.clearFeedCache()
 
-            withContext(Dispatchers.Main) {
+            handler.post {
                 Toast.makeText(context, "Added '$channelName' to subscriptions!", Toast.LENGTH_SHORT).show()
                 onDone()
             }

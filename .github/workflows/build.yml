@@ -32,7 +32,7 @@ jobs:
       - name: Build Plugins
         run: |
           chmod +x gradlew
-          ./gradlew make makePluginsJson
+          ./gradlew make makePluginsJson --stacktrace
           mkdir -p dist
           cp YouTube/build/*.cs3 dist/ || cp **/build/*.cs3 dist/ || true
           cp build/plugins.json dist/ || true

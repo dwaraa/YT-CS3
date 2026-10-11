@@ -6,8 +6,6 @@ import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.Page
@@ -207,17 +205,11 @@ class YoutubeProvider : MainAPI() {
             )
         }
 
-        val collectedVideos: List<List<SearchResponse>> = coroutineScope {
-            channels.map { channel ->
-                async {
-                    fetchRecentChannelVideos(channel.url, limit = 10)
-                }
-            }.map { deferred ->
-                try {
-                    deferred.await()
-                } catch (_: Exception) {
-                    emptyList()
-                }
+        val collectedVideos: List<List<SearchResponse>> = channels.map { channel ->
+            try {
+                fetchRecentChannelVideos(channel.url, limit = 10)
+            } catch (_: Exception) {
+                emptyList()
             }
         }
 
