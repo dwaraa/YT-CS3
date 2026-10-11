@@ -97,7 +97,7 @@ YouTube/build/YouTube.cs3
    - **Repository Name**: `YouTube Provider`
    - **Repository URL**:
      ```
-     https://raw.githubusercontent.com/<YOUR_GITHUB_USER>/YT-CS3/builds/repo.json
+     https://raw.githubusercontent.com/dwaraa/YT-CS3/builds/repo.json
      ```
 5. Tap **Download/Setup**.
 6. Find **YouTube** and tap **Install**.
