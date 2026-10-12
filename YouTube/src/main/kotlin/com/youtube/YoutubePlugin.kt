@@ -19,9 +19,6 @@ class YoutubePlugin : Plugin() {
         // Register the YouTube provider into Cloudstream
         registerMainAPI(YoutubeProvider())
 
-        // Start embedded web server for settings (accessible locally & remotely)
-        YoutubeWebServer.start(context)
-
         // Connect settings action to open our interactive settings dialog
         openSettings = { ctx ->
             YoutubeSettings.show(ctx)
