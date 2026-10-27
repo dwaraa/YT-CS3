@@ -32,7 +32,7 @@ class YoutubeProvider : MainAPI() {
         private const val TAG = "YoutubeProvider"
 
         private const val DEFAULT_ICON =
-            "https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/512px-YouTube_full-color_icon_%282017%29.svg.png"
+            "https://raw.githubusercontent.com/dwaraa/YT-CS3/master/YouTube/icon.png"
 
         fun clearFeedCache() {
             YoutubeFeedHandler.clearFeedCache()

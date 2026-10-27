@@ -56,6 +56,7 @@ jobs:
           cp YouTube/build/*.cs3 dist/ || cp **/build/*.cs3 dist/ || true
           cp build/plugins.json dist/ || true
           cp repo.json dist/ || true
+          cp YouTube/icon.png dist/ || cp icon.png dist/ || true
 
       - name: Deploy to builds branch
         if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
@@ -74,3 +75,4 @@ jobs:
           curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@builds/plugins.json" || true
           curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@builds/YouTube.cs3" || true
           curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@builds/repo.json" || true
+          curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@builds/icon.png" || true

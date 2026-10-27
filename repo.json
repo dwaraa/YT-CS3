@@ -1,6 +1,6 @@
 {
   "name": "YouTube Provider",
-  "iconUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/512px-YouTube_full-color_icon_%282017%29.svg.png",
+  "iconUrl": "https://raw.githubusercontent.com/dwaraa/YT-CS3/master/YouTube/icon.png",
   "description": "Cloudstream 3 Provider for YouTube (Trending, Music, Gaming, News, Movies & Shows, Live, Search, Playlists, Channels)",
   "manifestVersion": 1,
   "pluginLists": [
