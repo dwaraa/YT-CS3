@@ -90,22 +90,42 @@ YT-CS3/
 │   │   ├── bug_report.md           # Bug report template with logcat & versions
 │   │   └── feature_request.md      # Feature request template
 │   ├── workflows/
-│   │   └── build.yml               # Automated GitHub Actions CI/CD to build & publish .cs3 files
+│   │   └── build.yml               # Automated CI/CD (PR testing, ktlint, .cs3 build & publish)
 │   └── dependabot.yml              # Automated dependency update PRs
 ├── gradle/
 │   └── wrapper/
 │       ├── gradle-wrapper.jar
 │       └── gradle-wrapper.properties
 ├── YouTube/
-│   ├── build.gradle.kts            # Cloudstream plugin metadata & settings
+│   ├── build.gradle.kts            # Cloudstream plugin metadata (version 4)
 │   ├── icon.png                    # High-res YouTube provider icon
-│   └── src/main/kotlin/com/youtube/
-│       ├── YoutubePlugin.kt        # @CloudstreamPlugin entry point with openSettings hook
-│       ├── YoutubeProvider.kt      # MainAPI implementation with dynamic feeds & extractors
-│       ├── YoutubePreferences.kt   # Persistent subscription & row toggle storage
-│       ├── YoutubeSettings.kt      # Interactive Android AlertDialog/BottomSheet settings UI
-│       └── YoutubeDownloader.kt    # Custom OkHttp Downloader for NewPipeExtractor
-├── build.gradle.kts                # Root Gradle configuration
+│   ├── src/main/java/com/youtube/
+│   │   └── AudioHelper.java        # Cross-module Java bridge for AudioFile multi-source playback
+│   ├── src/main/kotlin/com/youtube/
+│   │   ├── YoutubePlugin.kt        # @CloudstreamPlugin entry point with openSettings hook
+│   │   ├── YoutubeProvider.kt      # MainAPI implementation delegating to modular handlers
+│   │   ├── YoutubePreferences.kt   # Typed settings model (HomeRowType, cache TTL, timeouts)
+│   │   ├── YoutubeSettings.kt      # Top-level settings BottomSheet orchestrator
+│   │   ├── YoutubeDownloader.kt    # Custom OkHttp Downloader with cookie refresh
+│   │   ├── extractor/
+│   │   │   ├── YoutubeLinkResolver.kt  # Adaptive 1080p/4K pairing, numeric matching, dubs
+│   │   │   └── YoutubeEpisodeMapper.kt # Episode/search mapping, date sorting, de-duplication
+│   │   ├── feed/
+│   │   │   └── YoutubeFeedHandler.kt   # Parallel subscription fetching, timeouts, and cache
+│   │   ├── loader/
+│   │   │   └── YoutubeLoaders.kt       # Video, channel, and playlist loaders with pagination
+│   │   ├── search/
+│   │   │   └── YoutubeSearchHandler.kt # Multi-page catalog search and quick search
+│   │   └── ui/
+│   │       ├── SettingsTheme.kt        # Color tokens, drawables, and avatar bitmap cache
+│   │       ├── SettingsComponents.kt   # Reusable UI cards, switches, rows, and picker modals
+│   │       └── SubscriptionDialogs.kt  # Channel search/addition and subscription management
+│   └── src/test/kotlin/com/youtube/
+│       ├── YoutubeUrlUtilsTest.kt      # URL and handle parsing, video ID sanitation tests
+│       ├── YoutubeQualityTest.kt       # Numeric quality parsing and matching tests
+│       ├── YoutubeDateParserTest.kt    # Relative upload date parsing and sorting tests
+│       └── YoutubePreferencesTest.kt   # Typed settings and SubscribedChannel JSON tests
+├── build.gradle.kts                # Root Gradle configuration with testOptions & coroutines
 ├── settings.gradle.kts             # Gradle multi-project settings
 ├── gradle.properties               # JVM and compiler tuning
 ├── repo.json                       # Cloudstream repository manifest

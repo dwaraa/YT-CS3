@@ -13,30 +13,57 @@ data class SubscribedChannel(
     val avatarUrl: String = ""
 )
 
+enum class HomeRowType(val prefKey: String, val displayName: String, val defaultEnabled: Boolean) {
+    COMBINED_SUBSCRIPTIONS("show_combined_subscriptions", "Subscribed: Latest Videos", true),
+    INDIVIDUAL_CHANNELS("show_individual_channels", "Individual Subscribed Channels", true),
+    TRENDING("show_trending", "Trending", true),
+    MOVIES_AND_SHOWS("show_movies", "Movies & Shows", true),
+    MUSIC("show_music", "Music", true),
+    GAMING("show_gaming", "Gaming", true),
+    PODCASTS("show_podcasts", "Podcasts", true),
+    LIVE_STREAMS("show_live", "Live Streams", true);
+
+    companion object {
+        fun fromPrefKey(key: String): HomeRowType? = entries.firstOrNull { it.prefKey == key }
+    }
+}
+
 object YoutubePreferences {
     private const val TAG = "YoutubePreferences"
     private const val PREFS_NAME = "youtube_cloudstream_prefs"
     private const val KEY_SUBSCRIPTIONS = "subscribed_channels_json"
-    private const val KEY_SHOW_COMBINED_SUBS = "show_combined_subscriptions"
-    private const val KEY_SHOW_INDIVIDUAL_CHANNELS = "show_individual_channels"
-    private const val KEY_SHOW_TRENDING = "show_trending"
-    private const val KEY_SHOW_MUSIC = "show_music"
-    private const val KEY_SHOW_GAMING = "show_gaming"
-    private const val KEY_SHOW_MOVIES = "show_movies"
-    private const val KEY_SHOW_PODCASTS = "show_podcasts"
-    private const val KEY_SHOW_LIVE = "show_live"
     private const val KEY_PREFERRED_QUALITY = "preferred_video_quality"
     private const val KEY_PREFERRED_SUBTITLE = "preferred_subtitle_lang"
     private const val KEY_COOKIES_JSON = "cached_cookies_json"
     private const val KEY_COOKIES_LAST_REFRESH = "cookies_last_refresh_timestamp"
+    private const val KEY_CACHE_TTL_MINUTES = "cache_ttl_minutes"
+    private const val KEY_ROW_TIMEOUT_SECONDS = "row_timeout_seconds"
+    private const val KEY_MAX_COMBINED_VIDEOS = "max_combined_videos"
 
     private var prefs: SharedPreferences? = null
+    private val cacheClearListeners = mutableListOf<() -> Unit>()
 
     fun init(context: Context) {
         if (prefs == null) {
             prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             seedDefaultsIfEmpty()
             cleanTruncatedAvatars()
+        }
+    }
+
+    fun registerCacheClearListener(listener: () -> Unit) {
+        if (!cacheClearListeners.contains(listener)) {
+            cacheClearListeners.add(listener)
+        }
+    }
+
+    fun notifyCacheCleared() {
+        for (listener in cacheClearListeners) {
+            try {
+                listener.invoke()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error in cache clear listener: ${e.message}")
+            }
         }
     }
 
@@ -163,37 +190,68 @@ object YoutubePreferences {
         prefs?.edit()?.putLong(KEY_COOKIES_LAST_REFRESH, timestamp)?.apply()
     }
 
+    // --- Typed Home Row Settings ---
+
+    fun isRowEnabled(rowType: HomeRowType): Boolean {
+        return prefs?.getBoolean(rowType.prefKey, rowType.defaultEnabled) ?: rowType.defaultEnabled
+    }
+
+    fun setRowEnabled(rowType: HomeRowType, enabled: Boolean) {
+        prefs?.edit()?.putBoolean(rowType.prefKey, enabled)?.apply()
+    }
+
     var showCombinedSubscriptions: Boolean
-        get() = prefs?.getBoolean(KEY_SHOW_COMBINED_SUBS, true) ?: true
-        set(value) { prefs?.edit()?.putBoolean(KEY_SHOW_COMBINED_SUBS, value)?.apply() }
+        get() = isRowEnabled(HomeRowType.COMBINED_SUBSCRIPTIONS)
+        set(value) = setRowEnabled(HomeRowType.COMBINED_SUBSCRIPTIONS, value)
 
     var showIndividualChannelRows: Boolean
-        get() = prefs?.getBoolean(KEY_SHOW_INDIVIDUAL_CHANNELS, true) ?: true
-        set(value) { prefs?.edit()?.putBoolean(KEY_SHOW_INDIVIDUAL_CHANNELS, value)?.apply() }
+        get() = isRowEnabled(HomeRowType.INDIVIDUAL_CHANNELS)
+        set(value) = setRowEnabled(HomeRowType.INDIVIDUAL_CHANNELS, value)
 
     var showTrending: Boolean
-        get() = prefs?.getBoolean(KEY_SHOW_TRENDING, true) ?: true
-        set(value) { prefs?.edit()?.putBoolean(KEY_SHOW_TRENDING, value)?.apply() }
+        get() = isRowEnabled(HomeRowType.TRENDING)
+        set(value) = setRowEnabled(HomeRowType.TRENDING, value)
 
     var showMusic: Boolean
-        get() = prefs?.getBoolean(KEY_SHOW_MUSIC, true) ?: true
-        set(value) { prefs?.edit()?.putBoolean(KEY_SHOW_MUSIC, value)?.apply() }
+        get() = isRowEnabled(HomeRowType.MUSIC)
+        set(value) = setRowEnabled(HomeRowType.MUSIC, value)
 
     var showGaming: Boolean
-        get() = prefs?.getBoolean(KEY_SHOW_GAMING, true) ?: true
-        set(value) { prefs?.edit()?.putBoolean(KEY_SHOW_GAMING, value)?.apply() }
+        get() = isRowEnabled(HomeRowType.GAMING)
+        set(value) = setRowEnabled(HomeRowType.GAMING, value)
 
     var showMovies: Boolean
-        get() = prefs?.getBoolean(KEY_SHOW_MOVIES, true) ?: true
-        set(value) { prefs?.edit()?.putBoolean(KEY_SHOW_MOVIES, value)?.apply() }
+        get() = isRowEnabled(HomeRowType.MOVIES_AND_SHOWS)
+        set(value) = setRowEnabled(HomeRowType.MOVIES_AND_SHOWS, value)
 
     var showPodcasts: Boolean
-        get() = prefs?.getBoolean(KEY_SHOW_PODCASTS, true) ?: true
-        set(value) { prefs?.edit()?.putBoolean(KEY_SHOW_PODCASTS, value)?.apply() }
+        get() = isRowEnabled(HomeRowType.PODCASTS)
+        set(value) = setRowEnabled(HomeRowType.PODCASTS, value)
 
     var showLive: Boolean
-        get() = prefs?.getBoolean(KEY_SHOW_LIVE, true) ?: true
-        set(value) { prefs?.edit()?.putBoolean(KEY_SHOW_LIVE, value)?.apply() }
+        get() = isRowEnabled(HomeRowType.LIVE_STREAMS)
+        set(value) = setRowEnabled(HomeRowType.LIVE_STREAMS, value)
+
+    // Configurable Cache TTL in minutes (e.g. 1, 5, 15, 30, 60; default 5)
+    var cacheTtlMinutes: Int
+        get() = prefs?.getInt(KEY_CACHE_TTL_MINUTES, 5) ?: 5
+        set(value) { prefs?.edit()?.putInt(KEY_CACHE_TTL_MINUTES, value.coerceAtLeast(1))?.apply() }
+
+    val cacheTtlMs: Long
+        get() = cacheTtlMinutes * 60 * 1000L
+
+    // Per-channel/row timeout in seconds (default 6)
+    var rowTimeoutSeconds: Int
+        get() = prefs?.getInt(KEY_ROW_TIMEOUT_SECONDS, 6) ?: 6
+        set(value) { prefs?.edit()?.putInt(KEY_ROW_TIMEOUT_SECONDS, value.coerceIn(2, 30))?.apply() }
+
+    val rowTimeoutMs: Long
+        get() = rowTimeoutSeconds * 1000L
+
+    // Max items in combined subscriptions feed (default 50)
+    var maxCombinedVideos: Int
+        get() = prefs?.getInt(KEY_MAX_COMBINED_VIDEOS, 50) ?: 50
+        set(value) { prefs?.edit()?.putInt(KEY_MAX_COMBINED_VIDEOS, value.coerceIn(10, 200))?.apply() }
 
     // Preferred video resolution: "Auto", "2160p (4K)", "1440p (2K)", "1080p", "720p", "480p", "360p"
     var preferredQuality: String
@@ -208,5 +266,6 @@ object YoutubePreferences {
     fun resetToDefaults() {
         prefs?.edit()?.clear()?.apply()
         seedDefaultsIfEmpty()
+        notifyCacheCleared()
     }
 }

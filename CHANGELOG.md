@@ -11,9 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 - Search filters (sort by date, duration, upload date, view count).
-- Playlist browsing and playback.
 - SponsorBlock integration for skipping sponsor segments.
 - Return YouTube Dislike (RYD) API integration.
+
+---
+
+## [1.3.0] - 2026-10-27
+
+### Added
+- **Speed & Concurrency**:
+  - Parallel channel subscription fetching with a concurrency cap of 5 using Kotlin coroutines and `Semaphore`.
+  - Added per-row timeouts (`withTimeoutOrNull`, default 6s) preventing any slow or failing channel from blocking home screen generation.
+  - Configurable in-memory feed cache TTL (1m, 5m, 15m, 30m, 60m) and an instant "Refresh Now" action in Settings.
+  - Strictly sorted the combined subscriptions feed chronologically by upload date using parsed exact/relative timestamps instead of simple round-robin interleaving.
+  - Automatic de-duplication and capping of combined feed results (default 50 items) for fast rendering.
+- **Modular Code Architecture**:
+  - Decomposed 1,158-line `YoutubeProvider.kt` into focused modules:
+    - `YoutubeFeedHandler`: handles parallel feeds, caching, and timeouts.
+    - `YoutubeSearchHandler`: handles catalog and quick search.
+    - `YoutubeLoaders`: handles video, channel, and playlist extraction.
+    - `YoutubeLinkResolver`: handles stream extraction, adaptive pairing, and subtitle sorting.
+    - `YoutubeEpisodeMapper`: unified episode/search response mapping and upload date parsing.
+  - Decomposed 1,287-line `YoutubeSettings.kt` into reusable UI modules:
+    - `SettingsTheme`: color tokens, drawable builders, and avatar bitmap cache.
+    - `SettingsComponents`: card groups, switch rows, setting rows, and selection modals.
+    - `SubscriptionDialogs`: channel addition and subscription management.
+  - Replaced scattered boolean preference properties with a typed settings model (`HomeRowType`, `isRowEnabled`, `setRowEnabled`).
+  - Unified episode building and raised channel and playlist page limits from 5-6 pages up to 15 pages (~450 videos).
+- **Quality Gates & CI**:
+  - Comprehensive unit test suite with 12 unit tests across `YoutubeUrlUtilsTest`, `YoutubeQualityTest`, `YoutubeDateParserTest`, and `YoutubePreferencesTest`.
+  - Updated CI workflow (`.github/workflows/build.yml`) to run on pull requests, execute unit tests, run `ktlint`, and cache Gradle dependencies.
 
 ---
 

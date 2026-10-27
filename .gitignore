@@ -15,3 +15,4 @@ builds/
 MAIN-RESLOVER/
 embed-*.html
 .kotlin/
+.vscode/

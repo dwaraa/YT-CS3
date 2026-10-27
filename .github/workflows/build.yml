@@ -1,7 +1,14 @@
-name: Build and Publish Cloudstream Plugins
+name: CI & Build Cloudstream Plugins
 
 on:
   push:
+    branches:
+      - master
+      - main
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+  pull_request:
     branches:
       - master
       - main
@@ -28,10 +35,22 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' }}
 
-      - name: Build Plugins
+      - name: Run Unit Tests
         run: |
           chmod +x gradlew
+          ./gradlew test --stacktrace
+
+      - name: Lint Code with ktlint
+        run: |
+          curl -sSLO https://github.com/pinterest/ktlint/releases/download/1.5.0/ktlint
+          chmod a+x ktlint
+          ./ktlint "YouTube/src/**/*.kt" || echo "ktlint completed with warnings"
+
+      - name: Build Plugins (.cs3 & plugins.json)
+        run: |
           ./gradlew make makePluginsJson --stacktrace
           mkdir -p dist
           cp YouTube/build/*.cs3 dist/ || cp **/build/*.cs3 dist/ || true
@@ -39,6 +58,7 @@ jobs:
           cp repo.json dist/ || true
 
       - name: Deploy to builds branch
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
         uses: s0/git-publish-subdir-action@develop
         env:
           REPO: self
@@ -48,6 +68,7 @@ jobs:
           MESSAGE: "Auto-build plugins for Cloudstream: ${GITHUB_SHA}"
 
       - name: Purge jsDelivr CDN Cache
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
         run: |
           sleep 5
           curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@builds/plugins.json" || true

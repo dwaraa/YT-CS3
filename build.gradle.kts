@@ -54,6 +54,10 @@ subprojects {
             targetCompatibility = JavaVersion.VERSION_11
         }
 
+        testOptions {
+            unitTests.isReturnDefaultValues = true
+        }
+
         tasks.withType<KotlinJvmCompile> {
             compilerOptions {
                 jvmTarget.set(JvmTarget.JVM_11)
@@ -70,6 +74,7 @@ subprojects {
     dependencies {
         val cloudstream by configurations
         val implementation by configurations
+        val testImplementation by configurations
 
         cloudstream("com.lagradost:cloudstream3:pre-release")
 
@@ -78,6 +83,10 @@ subprojects {
         implementation("org.jsoup:jsoup:1.18.3")
         implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.2")
         implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+        testImplementation("junit:junit:4.13.2")
+        testImplementation(kotlin("test"))
     }
 }
 
