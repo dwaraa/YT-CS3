@@ -1105,7 +1105,7 @@ object YoutubeSettings {
             }
             avatarFrame.addView(avatarImageView)
 
-            loadAvatarInto(channel.avatarUrl, avatarImageView)
+            loadAvatarInto(channel.avatarUrl, avatarImageView, channel.url)
             item.addView(avatarFrame)
 
             // Channel Names
@@ -1183,8 +1183,28 @@ object YoutubeSettings {
         return output
     }
 
-    private fun loadAvatarInto(url: String, imageView: ImageView) {
-        if (url.isBlank()) return
+    private fun loadAvatarInto(url: String, imageView: ImageView, channelUrl: String? = null) {
+        if (url.isBlank()) {
+            if (!channelUrl.isNullOrBlank()) {
+                // Resolve channel avatar dynamically in background
+                thread {
+                    try {
+                        val extractor = ServiceList.YouTube.getChannelExtractor(channelUrl)
+                        extractor.fetchPage()
+                        val resolvedUrl = extractor.avatars.lastOrNull()?.url ?: ""
+                        if (resolvedUrl.isNotBlank()) {
+                            YoutubePreferences.updateChannelAvatar(channelUrl, resolvedUrl)
+                            Handler(Looper.getMainLooper()).post {
+                                loadAvatarInto(resolvedUrl, imageView, null)
+                            }
+                        }
+                    } catch (e: Throwable) {
+                        android.util.Log.w("YoutubeSettings", "Failed to resolve channel avatar for $channelUrl: ${e.message}")
+                    }
+                }
+            }
+            return
+        }
         val cached = avatarCache[url]
         if (cached != null) {
             imageView.setImageBitmap(cached)
@@ -1193,8 +1213,8 @@ object YoutubeSettings {
         thread {
             try {
                 val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 3000
-                conn.readTimeout = 3000
+                conn.connectTimeout = 4000
+                conn.readTimeout = 4000
                 conn.doInput = true
                 conn.connect()
                 val inputStream = conn.inputStream
@@ -1207,7 +1227,9 @@ object YoutubeSettings {
                         imageView.setImageBitmap(circular)
                     }
                 }
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) {
+                android.util.Log.w("YoutubeSettings", "Failed to fetch avatar from $url: ${e.message}")
+            }
         }
     }
 
@@ -1225,13 +1247,17 @@ object YoutubeSettings {
         thread {
             var channelName = rawInput.removePrefix("https://www.youtube.com/").removePrefix("@")
             var avatarUrl = ""
+            var resolutionError: String? = null
 
             try {
                 val extractor = ServiceList.YouTube.getChannelExtractor(normalizedUrl)
                 extractor.fetchPage()
                 channelName = extractor.name.takeIf { it.isNotBlank() } ?: channelName
                 avatarUrl = extractor.avatars.lastOrNull()?.url ?: ""
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.e("YoutubeSettings", "Error resolving channel $normalizedUrl: ${e.message}", e)
+                resolutionError = e.localizedMessage ?: e.javaClass.simpleName
+            }
 
             val channel = SubscribedChannel(
                 id = rawInput,
@@ -1244,7 +1270,15 @@ object YoutubeSettings {
             YoutubeProvider.clearFeedCache()
 
             handler.post {
-                Toast.makeText(context, "Added '$channelName' to subscriptions!", Toast.LENGTH_SHORT).show()
+                if (resolutionError != null) {
+                    Toast.makeText(
+                        context,
+                        "Added '$channelName' (Note: Could not fetch avatar: $resolutionError)",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Toast.makeText(context, "Added '$channelName' to subscriptions!", Toast.LENGTH_SHORT).show()
+                }
                 onDone()
             }
         }

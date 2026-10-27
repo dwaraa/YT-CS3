@@ -1,5 +1,6 @@
 package com.youtube
 
+import android.util.Log
 import okhttp3.ConnectionPool
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -22,14 +23,92 @@ class YoutubeDownloader(
 ) : Downloader() {
 
     companion object {
+        private const val TAG = "YoutubeDownloader"
         const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
 
-        // Pre-seeded consent & preference cookies to bypass Google's consent wall and bot hurdles
-        private val cookies = ConcurrentHashMap<String, String>().apply {
-            put("SOCS", "CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg")
-            put("CONSENT", "YES+cb.20230531-04-p0.en+FX+999")
-            put("PREF", "f6=40000000&hl=en&f2=8000000")
+        private val cookies = ConcurrentHashMap<String, String>()
+        private const val COOKIE_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000L // 12 hours
+
+        init {
+            loadInitialCookies()
+        }
+
+        private fun loadInitialCookies() {
+            // 1. Try loading cached cookies from persistent storage
+            val cached = try {
+                YoutubePreferences.getCachedCookies()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed loading cached cookies: ${e.message}")
+                emptyMap()
+            }
+
+            if (cached.isNotEmpty()) {
+                cookies.putAll(cached)
+                Log.d(TAG, "Loaded ${cached.size} cached cookies from preferences")
+            } else {
+                // 2. Fallback seeds if no cached cookies exist yet
+                cookies["SOCS"] = "CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg"
+                cookies["CONSENT"] = "YES+cb.20230531-04-p0.en+FX+999"
+                cookies["PREF"] = "f6=40000000&hl=en&f2=8000000"
+            }
+        }
+
+        @Synchronized
+        fun refreshConsentCookies(client: OkHttpClient? = null, force: Boolean = false) {
+            val now = System.currentTimeMillis()
+            val lastRefresh = YoutubePreferences.getCookiesLastRefresh()
+            if (!force && (now - lastRefresh) < COOKIE_REFRESH_INTERVAL_MS && cookies.containsKey("SOCS")) {
+                return
+            }
+
+            try {
+                Log.d(TAG, "Refreshing YouTube consent cookies (force=$force)...")
+                val http = client ?: OkHttpClient.Builder()
+                    .connectTimeout(15, TimeUnit.SECONDS)
+                    .readTimeout(15, TimeUnit.SECONDS)
+                    .followRedirects(true)
+                    .build()
+
+                val req = okhttp3.Request.Builder()
+                    .url("https://www.youtube.com/?hl=en")
+                    .header("User-Agent", USER_AGENT)
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .build()
+
+                val resp = http.newCall(req).execute()
+                var updated = false
+
+                resp.headers("Set-Cookie").forEach { rawCookie ->
+                    val cookiePart = rawCookie.substringBefore(";")
+                    val eqIdx = cookiePart.indexOf("=")
+                    if (eqIdx > 0) {
+                        val cookieName = cookiePart.substring(0, eqIdx).trim()
+                        val cookieValue = cookiePart.substring(eqIdx + 1).trim()
+                        cookies[cookieName] = cookieValue
+                        updated = true
+                    }
+                }
+
+                // If not provided in Set-Cookie, guarantee required consent tokens
+                if (!cookies.containsKey("CONSENT")) {
+                    cookies["CONSENT"] = "YES+cb.20230531-04-p0.en+FX+999"
+                    updated = true
+                }
+                if (!cookies.containsKey("SOCS")) {
+                    cookies["SOCS"] = "CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg"
+                    updated = true
+                }
+
+                if (updated) {
+                    YoutubePreferences.saveCachedCookies(cookies.toMap())
+                    YoutubePreferences.saveCookiesLastRefresh(now)
+                    Log.i(TAG, "Successfully refreshed YouTube cookies. Keys: ${cookies.keys}")
+                }
+                resp.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to refresh consent cookies: ${e.message}", e)
+            }
         }
     }
 
@@ -95,9 +174,15 @@ class YoutubeDownloader(
             }
         }
 
-        val response = client.newCall(builder.build()).execute()
+        val response = try {
+            client.newCall(builder.build()).execute()
+        } catch (e: Exception) {
+            Log.e(TAG, "Network call failed for $url: ${e.message}", e)
+            throw e
+        }
 
-        // Capture Set-Cookie headers from YouTube responses to maintain session state
+        // Capture Set-Cookie headers from YouTube responses to maintain dynamic session state
+        var newCookiesFound = false
         response.headers("Set-Cookie").forEach { rawCookie ->
             val cookiePart = rawCookie.substringBefore(";")
             val eqIdx = cookiePart.indexOf("=")
@@ -105,7 +190,18 @@ class YoutubeDownloader(
                 val cookieName = cookiePart.substring(0, eqIdx).trim()
                 val cookieValue = cookiePart.substring(eqIdx + 1).trim()
                 cookies[cookieName] = cookieValue
+                newCookiesFound = true
             }
+        }
+        if (newCookiesFound) {
+            YoutubePreferences.saveCachedCookies(cookies.toMap())
+        }
+
+        val finalUrl = response.request.url.toString()
+        // Detect bot checks, rate limiting (429), or consent redirects
+        if (response.code == 429 || finalUrl.contains("consent.youtube.com") || finalUrl.contains("google.com/sorry")) {
+            Log.w(TAG, "Encountered YouTube hurdle (Code: ${response.code}, FinalUrl: $finalUrl). Refreshing cookies...")
+            refreshConsentCookies(client, force = true)
         }
 
         val responseBody = response.body?.string().orEmpty()
@@ -115,7 +211,7 @@ class YoutubeDownloader(
             response.message,
             response.headers.toMultimap(),
             responseBody,
-            response.request.url.toString()
+            finalUrl
         )
     }
 }

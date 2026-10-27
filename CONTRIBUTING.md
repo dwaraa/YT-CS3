@@ -10,9 +10,10 @@ Thank you for your interest in contributing to the **YouTube CloudStream 3 Provi
 3. [Building Locally](#building-locally)
 4. [Testing on an Android Device](#testing-on-an-android-device)
 5. [Debugging & Logs](#debugging--logs)
-6. [Commit Message Conventions](#commit-message-conventions)
-7. [Release & Version Tagging](#release--version-tagging)
-8. [Submitting a Pull Request](#submitting-a-pull-request)
+6. [Updating NewPipeExtractor Checklist](#updating-newpipeextractor-checklist)
+7. [Commit Message Conventions](#commit-message-conventions)
+8. [Release & Version Tagging](#release--version-tagging)
+9. [Submitting a Pull Request](#submitting-a-pull-request)
 
 ---
 
@@ -119,6 +120,38 @@ To filter for Kotlin stacktraces and exceptions:
 ```bash
 adb logcat *:E | grep -i youtube
 ```
+
+---
+
+## 🔄 Updating NewPipeExtractor Checklist
+
+Because YouTube regularly iterates on internal player responses, throttling parameters (`n-sig`), and consent/bot hurdles, updating [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor) is a critical routine maintenance task.
+
+Follow this checklist whenever updating NewPipeExtractor:
+
+1. **Check Upstream Releases & JitPack**:
+   - Visit [TeamNewPipe/NewPipeExtractor Releases / Tags](https://github.com/TeamNewPipe/NewPipeExtractor/tags).
+   - Check [JitPack Build Log](https://jitpack.io/#com.github.teamnewpipe/NewPipeExtractor) to verify that the release or git commit built successfully (shows green `ok`).
+2. **Update Root Gradle Configuration**:
+   - In `build.gradle.kts`, update the dependency tag:
+     ```kotlin
+     implementation("com.github.teamnewpipe:NewPipeExtractor:v0.X.Y")
+     ```
+3. **Verify API Compatibility & Method Signatures**:
+   - Run `./gradlew clean make` to detect any upstream API breaks in:
+     - `Downloader` / `Request` / `Response` contracts (`YoutubeDownloader.kt`).
+     - Extractor retrieval: `StreamInfo.getInfo(...)`, `service.getChannelExtractor(...)`, `service.kioskList`.
+     - Exception classes under `org.schabi.newpipe.extractor.exceptions.*`.
+4. **Smoke-Test Core Features on a Device or Emulator**:
+   - [ ] **Progressive Stream Playback**: Open standard 720p/1080p videos; verify audio and video play synchronously.
+   - [ ] **Live Streams**: Open a live event or 24/7 news stream; verify adaptive HLS playlist starts immediately.
+   - [ ] **Home Screen Feeds**: Verify Trending, Music, Gaming, and Subscribed rows populate.
+   - [ ] **Channel Pages**: Click an uploader/actor card and verify videos populate as playable episodes.
+   - [ ] **Search & Pagination**: Search queries with multi-page results.
+   - [ ] **Subtitles**: Verify English / Auto-generated subtitles load.
+5. **Update Documentation & Open PR**:
+   - Document the update in `CHANGELOG.md`.
+   - Submit a pull request titled: `chore(deps): update NewPipeExtractor to <version>`.
 
 ---
 

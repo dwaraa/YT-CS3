@@ -1,5 +1,6 @@
 package com.youtube
 
+import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
@@ -11,6 +12,7 @@ import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.channel.ChannelInfoItem
+import org.schabi.newpipe.extractor.exceptions.*
 import org.schabi.newpipe.extractor.kiosk.KioskExtractor
 import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.stream.StreamInfo
@@ -31,14 +33,46 @@ class YoutubeProvider : MainAPI() {
     )
 
     companion object {
+        private const val TAG = "YoutubeProvider"
+
         // High-speed in-memory caches (5-minute TTL)
         private val channelVideosCache = ConcurrentHashMap<String, Pair<Long, List<SearchResponse>>>()
         private var combinedSubCache: Pair<Long, List<SearchResponse>>? = null
         private const val CACHE_TTL_MS = 5 * 60 * 1000L // 5 minutes
 
+        // Negative caching & backoff for failing channels (60-second backoff)
+        private val failedChannelsCache = ConcurrentHashMap<String, Pair<Long, String>>()
+        private const val FAILURE_BACKOFF_MS = 60 * 1000L
+
+        private const val DEFAULT_ICON =
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/512px-YouTube_full-color_icon_%282017%29.svg.png"
+
         fun clearFeedCache() {
             channelVideosCache.clear()
             combinedSubCache = null
+            failedChannelsCache.clear()
+        }
+
+        fun formatExtractionError(t: Throwable): String {
+            val message = t.message ?: ""
+            return when {
+                t is ReCaptchaException || message.contains("recaptcha", ignoreCase = true) || message.contains("bot", ignoreCase = true) ->
+                    "Bot Verification Required (reCAPTCHA hurdle)"
+                t is AgeRestrictedContentException || message.contains("age", ignoreCase = true) ->
+                    "Age-Restricted Video (Requires Google sign-in)"
+                t is GeographicRestrictionException || message.contains("geo", ignoreCase = true) || message.contains("country", ignoreCase = true) ->
+                    "Region Blocked (Unavailable in current country/IP)"
+                t is PaidContentException || message.contains("paid", ignoreCase = true) || message.contains("premium", ignoreCase = true) ->
+                    "Members-Only Content (Requires paid YouTube subscription)"
+                message.contains("429") || message.contains("Too Many Requests", ignoreCase = true) ->
+                    "Rate Limited (HTTP 429 Too Many Requests)"
+                t is ContentNotAvailableException ->
+                    "Content Unavailable (Video removed or set to private)"
+                t is ParsingException ->
+                    "YouTube Layout Parsing Error (Page structure changed)"
+                else ->
+                    t.localizedMessage?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
+            }
         }
     }
 
@@ -49,10 +83,12 @@ class YoutubeProvider : MainAPI() {
     private fun ensureDownloaderInitialized() {
         try {
             NewPipe.getDownloader()
-        } catch (_: Throwable) {
+        } catch (e: Throwable) {
             try {
                 NewPipe.init(YoutubeDownloader())
-            } catch (_: Throwable) {}
+            } catch (initErr: Throwable) {
+                Log.e(TAG, "Failed to initialize NewPipe downloader: ${initErr.message}", initErr)
+            }
         }
     }
 
@@ -156,15 +192,28 @@ class YoutubeProvider : MainAPI() {
                     mainPageCache[dataKey] = it.nextPage
                 }
             }
-        } catch (_: Exception) {
-            return newHomePageResponse(emptyList(), false)
+        } catch (e: Exception) {
+            val err = formatExtractionError(e)
+            Log.e(TAG, "Failed to load kiosk '$dataKey': $err", e)
+            val errorItem = newMovieSearchResponse(
+                name = "⚠️ Couldn't load ${request.name} ($err)",
+                url = "https://www.youtube.com",
+                type = TvType.Others
+            ) {
+                this.posterUrl = DEFAULT_ICON
+            }
+            return newHomePageResponse(
+                listOf(HomePageList(request.name, listOf(errorItem), isHorizontalImages = true)),
+                false
+            )
         }
 
         val results = pageData.items.mapNotNull { it.toSearchResponse() }
 
         val headerName = try {
             extractor.name.ifEmpty { request.name }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read extractor name for $kioskId: ${e.message}")
             request.name
         }.ifEmpty { "Trending" }
 
@@ -193,11 +242,18 @@ class YoutubeProvider : MainAPI() {
 
         val channels = YoutubePreferences.getSubscribedChannels()
         if (channels.isEmpty()) {
+            val placeholder = newMovieSearchResponse(
+                name = "ℹ️ No Subscribed Channels (Tap Settings ⚙️ to add channels)",
+                url = "https://www.youtube.com",
+                type = TvType.Others
+            ) {
+                this.posterUrl = DEFAULT_ICON
+            }
             return newHomePageResponse(
                 listOf(
                     HomePageList(
-                        "$headerTitle (No channels added)",
-                        emptyList(),
+                        "$headerTitle (Empty)",
+                        listOf(placeholder),
                         isHorizontalImages = true
                     )
                 ),
@@ -208,7 +264,8 @@ class YoutubeProvider : MainAPI() {
         val collectedVideos: List<List<SearchResponse>> = channels.map { channel ->
             try {
                 fetchRecentChannelVideos(channel.url, limit = 10)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.w(TAG, "Error fetching videos for channel ${channel.name} (${channel.url}): ${e.message}")
                 emptyList()
             }
         }
@@ -229,13 +286,29 @@ class YoutubeProvider : MainAPI() {
         }
 
         val distinctItems = combinedItems.distinctBy { it.url }
-        combinedSubCache = Pair(now, distinctItems)
+        if (distinctItems.isNotEmpty()) {
+            combinedSubCache = Pair(now, distinctItems)
+        }
+
+        val finalItems = if (distinctItems.isEmpty()) {
+            listOf(
+                newMovieSearchResponse(
+                    name = "⚠️ Couldn't load latest uploads (Tap to retry)",
+                    url = "https://www.youtube.com",
+                    type = TvType.Others
+                ) {
+                    this.posterUrl = DEFAULT_ICON
+                }
+            )
+        } else {
+            distinctItems
+        }
 
         return newHomePageResponse(
             listOf(
                 HomePageList(
                     headerTitle,
-                    distinctItems,
+                    finalItems,
                     isHorizontalImages = true
                 )
             ),
@@ -245,6 +318,33 @@ class YoutubeProvider : MainAPI() {
 
     private suspend fun getSingleChannelFeed(headerTitle: String, channelUrl: String): HomePageResponse {
         val items = fetchRecentChannelVideos(channelUrl, limit = 25)
+        val channelName = headerTitle.removePrefix("Channel: ").trim()
+
+        if (items.isEmpty()) {
+            val failureInfo = failedChannelsCache[channelUrl]
+            val reason = failureInfo?.second ?: "Channel returned no videos"
+            Log.w(TAG, "Single channel feed empty for $channelUrl. Reason: $reason")
+
+            val retryCard = newMovieSearchResponse(
+                name = "⚠️ Couldn't load $channelName ($reason) - Tap to retry",
+                url = channelUrl,
+                type = TvType.Others
+            ) {
+                this.posterUrl = DEFAULT_ICON
+            }
+
+            return newHomePageResponse(
+                listOf(
+                    HomePageList(
+                        headerTitle,
+                        listOf(retryCard),
+                        isHorizontalImages = true
+                    )
+                ),
+                hasNext = false
+            )
+        }
+
         return newHomePageResponse(
             listOf(
                 HomePageList(
@@ -259,25 +359,51 @@ class YoutubeProvider : MainAPI() {
 
     private suspend fun fetchRecentChannelVideos(channelUrl: String, limit: Int = 20): List<SearchResponse> {
         val now = System.currentTimeMillis()
+
+        // 1. Check in-memory success cache
         val cached = channelVideosCache[channelUrl]
         if (cached != null && (now - cached.first) < CACHE_TTL_MS && cached.second.isNotEmpty()) {
             return cached.second
+        }
+
+        // 2. Negative caching & backoff: Do not hammer failing channels repeatedly
+        val failureInfo = failedChannelsCache[channelUrl]
+        if (failureInfo != null && (now - failureInfo.first) < FAILURE_BACKOFF_MS) {
+            val remainingSec = (FAILURE_BACKOFF_MS - (now - failureInfo.first)) / 1000
+            Log.d(TAG, "Skipping channel $channelUrl in backoff ($remainingSec s remaining): ${failureInfo.second}")
+            return emptyList()
         }
 
         return try {
             val extractor = service.getChannelExtractor(channelUrl)
             extractor.fetchPage()
 
+            // Resolve avatar at runtime if not already stored
+            val channelAvatar = extractor.avatars.lastOrNull()?.url
+            if (!channelAvatar.isNullOrBlank()) {
+                YoutubePreferences.updateChannelAvatar(channelUrl, channelAvatar)
+            }
+
             val tabs = extractor.tabs
             val videosTab = tabs.firstOrNull { it.url.contains("/videos") } ?: tabs.firstOrNull()
-                ?: return emptyList()
+            if (videosTab == null) {
+                val errorMsg = "No videos tab found on channel"
+                failedChannelsCache[channelUrl] = Pair(now, errorMsg)
+                return emptyList()
+            }
 
             val videosExtractor = service.getChannelTabExtractor(videosTab)
             val page = videosExtractor.initialPage
             val list = page.items.take(limit).mapNotNull { it.toSearchResponse() }
+
+            // Clear failure record and cache result
+            failedChannelsCache.remove(channelUrl)
             channelVideosCache[channelUrl] = Pair(now, list)
             list
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            val errorMsg = formatExtractionError(e)
+            Log.e(TAG, "Failed to fetch videos for channel $channelUrl: $errorMsg", e)
+            failedChannelsCache[channelUrl] = Pair(now, errorMsg)
             emptyList()
         }
     }
@@ -301,7 +427,9 @@ class YoutubeProvider : MainAPI() {
                 allItems.addAll(page.items.mapNotNull { it.toSearchResponse() })
                 pagesLoaded++
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e(TAG, "Search query '$query' encountered error: ${formatExtractionError(e)}", e)
+        }
 
         return allItems.distinctBy { it.url }
     }
@@ -312,7 +440,8 @@ class YoutubeProvider : MainAPI() {
             val extractor = service.getSearchExtractor(query)
             extractor.fetchPage()
             extractor.initialPage.items.take(15).mapNotNull { it.toSearchResponse() }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Quick search for '$query' failed: ${e.message}")
             emptyList()
         }
     }
@@ -364,11 +493,17 @@ class YoutubeProvider : MainAPI() {
         val cleanUrl = sanitizeUrl(url)
         val urlType = getUrlType(cleanUrl)
 
-        return when (urlType) {
-            UrlType.Video -> loadVideo(cleanUrl)
-            UrlType.Channel -> loadChannel(cleanUrl)
-            UrlType.Playlist -> loadPlaylist(cleanUrl)
-            UrlType.Unknown -> loadVideo(cleanUrl)
+        return try {
+            when (urlType) {
+                UrlType.Video -> loadVideo(cleanUrl)
+                UrlType.Channel -> loadChannel(cleanUrl)
+                UrlType.Playlist -> loadPlaylist(cleanUrl)
+                UrlType.Unknown -> loadVideo(cleanUrl)
+            }
+        } catch (e: Throwable) {
+            val errorMsg = formatExtractionError(e)
+            Log.e(TAG, "Failed to load '$cleanUrl': $errorMsg", e)
+            throw ErrorLoadingException(errorMsg)
         }
     }
 
@@ -393,11 +528,7 @@ class YoutubeProvider : MainAPI() {
         val videoDescription = info.description?.content.toString()
         val poster = info.thumbnails.lastOrNull()?.url
 
-        // CRITICAL RUNTIME FIX:
-        // CloudStream expects runtime in MINUTES for movies!
-        // info.duration is in SECONDS. (e.g. 309 seconds = 5m 09s).
-        // Passing 309 raw seconds resulted in CloudStream showing 5h 9m (309 / 60 = 5h 9m).
-        // Correct conversion to minutes:
+        // CloudStream expects runtime in MINUTES for movies
         val durationMinutes = if (info.duration > 0) {
             Math.round(info.duration / 60.0).toInt().coerceAtLeast(1)
         } else null
@@ -453,6 +584,10 @@ class YoutubeProvider : MainAPI() {
         val channelDescription = extractor.description ?: ""
         val channelAvatar = extractor.avatars.lastOrNull()?.url
         val channelBanner = extractor.banners.lastOrNull()?.url
+
+        if (!channelAvatar.isNullOrBlank()) {
+            YoutubePreferences.updateChannelAvatar(url, channelAvatar)
+        }
 
         val tabs = extractor.tabs
         val videosTab = tabs.firstOrNull { it.url.contains("/videos") } ?: tabs.firstOrNull()
@@ -577,6 +712,7 @@ class YoutubeProvider : MainAPI() {
         )
 
         var linkFound = false
+        var extractionFailureReason: String? = null
 
         // 1. Primary: Direct NewPipeExtractor Stream Resolution
         try {
@@ -679,7 +815,14 @@ class YoutubeProvider : MainAPI() {
                     )
                 )
             }
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            extractionFailureReason = formatExtractionError(t)
+            Log.e(TAG, "StreamInfo extraction failed for '$videoUrl': $extractionFailureReason", t)
+
+            if (t is ReCaptchaException || extractionFailureReason.contains("Bot", ignoreCase = true) || extractionFailureReason.contains("Rate Limited", ignoreCase = true)) {
+                YoutubeDownloader.refreshConsentCookies(force = true)
+            }
+        }
 
         // 2. Secondary Fallback: Cloudstream native extractors (only if NewPipe found no links)
         if (!linkFound) {
@@ -694,7 +837,13 @@ class YoutubeProvider : MainAPI() {
                 if (extracted) {
                     linkFound = true
                 }
-            } catch (_: Throwable) {}
+            } catch (t: Throwable) {
+                Log.w(TAG, "Secondary fallback extractor failed for '$videoUrl': ${t.message}")
+            }
+        }
+
+        if (!linkFound) {
+            Log.w(TAG, "No playable streams extracted for '$videoUrl'. Failure cause: ${extractionFailureReason ?: "No stream formats available"}")
         }
 
         return linkFound

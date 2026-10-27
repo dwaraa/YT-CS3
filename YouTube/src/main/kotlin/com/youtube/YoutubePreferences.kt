@@ -2,6 +2,7 @@ package com.youtube
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 
@@ -13,6 +14,7 @@ data class SubscribedChannel(
 )
 
 object YoutubePreferences {
+    private const val TAG = "YoutubePreferences"
     private const val PREFS_NAME = "youtube_cloudstream_prefs"
     private const val KEY_SUBSCRIPTIONS = "subscribed_channels_json"
     private const val KEY_SHOW_COMBINED_SUBS = "show_combined_subscriptions"
@@ -25,6 +27,8 @@ object YoutubePreferences {
     private const val KEY_SHOW_LIVE = "show_live"
     private const val KEY_PREFERRED_QUALITY = "preferred_video_quality"
     private const val KEY_PREFERRED_SUBTITLE = "preferred_subtitle_lang"
+    private const val KEY_COOKIES_JSON = "cached_cookies_json"
+    private const val KEY_COOKIES_LAST_REFRESH = "cookies_last_refresh_timestamp"
 
     private var prefs: SharedPreferences? = null
 
@@ -32,6 +36,7 @@ object YoutubePreferences {
         if (prefs == null) {
             prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             seedDefaultsIfEmpty()
+            cleanTruncatedAvatars()
         }
     }
 
@@ -43,22 +48,43 @@ object YoutubePreferences {
                     id = "@mkbhd",
                     name = "Marques Brownlee",
                     url = "https://www.youtube.com/@mkbhd",
-                    avatarUrl = "https://yt3.googleusercontent.com/lkH37D712tiyphnu0Id0D5MwwQ7IRuwgQLVD05iMXlDWO-kDHqqd8vNRB0T5_9O1L8iA3z9E4Q=s176-c-k-c0x00ffffff-no-rj"
+                    avatarUrl = ""
                 ),
                 SubscribedChannel(
                     id = "@veritasium",
                     name = "Veritasium",
                     url = "https://www.youtube.com/@veritasium",
-                    avatarUrl = "https://yt3.googleusercontent.com/ytc/AIdro_k6QG_81F4n3yC-G1l9jX3b4_wX2D8r_E_r_q=s176-c-k-c0x00ffffff-no-rj"
+                    avatarUrl = ""
                 ),
                 SubscribedChannel(
                     id = "@kurzgesagt",
                     name = "Kurzgesagt – In a Nutshell",
                     url = "https://www.youtube.com/@kurzgesagt",
-                    avatarUrl = "https://yt3.googleusercontent.com/ytc/AIdro_k6QG_81F4n3yC=s176-c-k-c0x00ffffff-no-rj"
+                    avatarUrl = ""
                 )
             )
             saveSubscribedChannels(defaults)
+        }
+    }
+
+    // Clean up any previously stored truncated or placeholder avatars from early builds
+    private fun cleanTruncatedAvatars() {
+        val channels = getSubscribedChannels()
+        var modified = false
+        val cleaned = channels.map { ch ->
+            if (ch.avatarUrl.contains("yt3.googleusercontent.com/ytc/AIdro_k6QG_81F4n3yC") ||
+                ch.avatarUrl.contains("AIdro_k6QG_81F4n3yC-G1l9jX3b4_wX2D8r_E_r_q") ||
+                ch.avatarUrl.length < 30
+            ) {
+                modified = true
+                ch.copy(avatarUrl = "")
+            } else {
+                ch
+            }
+        }
+        if (modified) {
+            Log.d(TAG, "Cleaned legacy truncated avatar URLs; will resolve dynamically at runtime")
+            saveSubscribedChannels(cleaned)
         }
     }
 
@@ -66,7 +92,8 @@ object YoutubePreferences {
         val raw = prefs?.getString(KEY_SUBSCRIPTIONS, null) ?: return emptyList()
         return try {
             parseJson<List<SubscribedChannel>>(raw)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse subscribed channels JSON: ${e.message}", e)
             emptyList()
         }
     }
@@ -88,6 +115,52 @@ object YoutubePreferences {
         val current = getSubscribedChannels().toMutableList()
         current.removeAll { it.id.equals(idOrUrl, ignoreCase = true) || it.url.equals(idOrUrl, ignoreCase = true) }
         saveSubscribedChannels(current)
+    }
+
+    fun updateChannelAvatar(idOrUrl: String, newAvatarUrl: String) {
+        if (newAvatarUrl.isBlank()) return
+        val current = getSubscribedChannels().toMutableList()
+        var updated = false
+        for (i in current.indices) {
+            val ch = current[i]
+            if (ch.id.equals(idOrUrl, ignoreCase = true) || ch.url.equals(idOrUrl, ignoreCase = true)) {
+                if (ch.avatarUrl != newAvatarUrl) {
+                    current[i] = ch.copy(avatarUrl = newAvatarUrl)
+                    updated = true
+                }
+            }
+        }
+        if (updated) {
+            Log.d(TAG, "Updated channel avatar for $idOrUrl -> $newAvatarUrl")
+            saveSubscribedChannels(current)
+        }
+    }
+
+    fun getCachedCookies(): Map<String, String> {
+        val raw = prefs?.getString(KEY_COOKIES_JSON, null) ?: return emptyMap()
+        return try {
+            parseJson<Map<String, String>>(raw)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse cached cookies JSON: ${e.message}")
+            emptyMap()
+        }
+    }
+
+    fun saveCachedCookies(cookies: Map<String, String>) {
+        try {
+            val json = cookies.toJson()
+            prefs?.edit()?.putString(KEY_COOKIES_JSON, json)?.apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to serialize cached cookies: ${e.message}")
+        }
+    }
+
+    fun getCookiesLastRefresh(): Long {
+        return prefs?.getLong(KEY_COOKIES_LAST_REFRESH, 0L) ?: 0L
+    }
+
+    fun saveCookiesLastRefresh(timestamp: Long) {
+        prefs?.edit()?.putLong(KEY_COOKIES_LAST_REFRESH, timestamp)?.apply()
     }
 
     var showCombinedSubscriptions: Boolean
