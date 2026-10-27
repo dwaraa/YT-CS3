@@ -44,11 +44,6 @@ object SubscriptionDialogs {
                 gravity = Gravity.CENTER_HORIZONTAL
                 setPadding(0, dp(context, 14), 0, dp(context, 8))
             }
-            val emptyIcon = TextView(context).apply {
-                text = "📺"
-                textSize = 28f
-                gravity = Gravity.CENTER
-            }
             val emptyTitle = TextView(context).apply {
                 text = "No Subscribed Channels"
                 setTextColor(COLOR_TEXT_PRIMARY)
@@ -239,7 +234,7 @@ object SubscriptionDialogs {
         root.addView(input)
 
         val pasteBtn = Button(context).apply {
-            text = "📋 Paste from Clipboard"
+            text = "Paste from Clipboard"
             setTextColor(COLOR_PRIMARY)
             textSize = 11.5f
             background = createRippleDrawable(context, COLOR_INNER_BG, COLOR_RIPPLE, 8f, COLOR_CARD_BORDER, 1f)
@@ -300,7 +295,7 @@ object SubscriptionDialogs {
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                 val clip = ClipData.newPlainText("YouTube Subscriptions", exportedText)
                 clipboard?.setPrimaryClip(clip)
-                Toast.makeText(context, "✅ Copied ${channels.size} subscriptions to clipboard as ${options[which]}!", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Copied ${channels.size} subscriptions to clipboard as ${options[which]}.", Toast.LENGTH_LONG).show()
             }
             .setNegativeButton("Cancel", null)
             .show()

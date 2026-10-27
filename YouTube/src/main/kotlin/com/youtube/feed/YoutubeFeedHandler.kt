@@ -85,7 +85,7 @@ class YoutubeFeedHandler(
                     if (YoutubePreferences.shortsMode != ShortsMode.HIDE) {
                         rows.add(
                             MainPageData(
-                                name = "YouTube Shorts ⚡",
+                                name = "YouTube Shorts",
                                 data = "feed:shorts",
                                 horizontalImages = false
                             )
@@ -165,7 +165,7 @@ class YoutubeFeedHandler(
         } catch (e: Exception) {
             val err = errorHandler(e)
             Log.e(TAG, "Failed to load kiosk '$dataKey': $err", e)
-            val errorItem = createInfoCard("⚠️ Couldn't load ${request.name} ($err)")
+            val errorItem = createInfoCard("Couldn't load ${request.name} ($err)")
             return newHomePageResponse(
                 listOf(HomePageList(request.name, listOf(errorItem), isHorizontalImages = true)),
                 false
@@ -241,7 +241,7 @@ class YoutubeFeedHandler(
             shortsFeedCache = Pair(now, capped)
         }
 
-        val finalItems = capped.ifEmpty { listOf(createInfoCard("⚡ No Shorts Available")) }
+        val finalItems = capped.ifEmpty { listOf(createInfoCard("No Shorts Available")) }
 
         return newHomePageResponse(
             listOf(HomePageList(headerTitle, finalItems, isHorizontalImages = false)),
@@ -263,7 +263,7 @@ class YoutubeFeedHandler(
 
         val channels = YoutubePreferences.getSubscribedChannels()
         if (channels.isEmpty()) {
-            val placeholder = createInfoCard("ℹ️ No Subscribed Channels (Tap Settings ⚙️ to add channels)")
+            val placeholder = createInfoCard("No Subscribed Channels (Use Settings to add channels)")
             return newHomePageResponse(
                 listOf(HomePageList("$headerTitle (Empty)", listOf(placeholder), isHorizontalImages = true)),
                 hasNext = false
@@ -335,9 +335,9 @@ class YoutubeFeedHandler(
 
         val finalItems = if (cappedItems.isEmpty()) {
             val emptyMsg = if (hideWatched && sortedItems.isNotEmpty()) {
-                "✅ All Caught Up! (All latest videos watched • Tap Settings to toggle)"
+                "All Caught Up (All latest videos watched)"
             } else {
-                "⚠️ Couldn't load latest uploads (Tap to retry)"
+                "Couldn't load latest uploads (Tap to retry)"
             }
             listOf(createInfoCard(emptyMsg))
         } else {
@@ -373,7 +373,7 @@ class YoutubeFeedHandler(
             val failureInfo = failedChannelsCache[channelUrl]
             val reason = failureInfo?.second ?: "No videos or all watched"
             Log.w(TAG, "Single channel feed empty for $channelUrl. Reason: $reason")
-            val retryCard = createInfoCard("⚠️ $channelName ($reason)", channelUrl)
+            val retryCard = createInfoCard("$channelName ($reason)", channelUrl)
             return newHomePageResponse(
                 listOf(HomePageList(headerTitle, listOf(retryCard), isHorizontalImages = true)),
                 hasNext = false

@@ -27,13 +27,20 @@ object AudioTrackHelper {
     fun isSupported(): Boolean = audioFileClass != null && setAudioTracksMethod != null && audioFileConstructor != null
 
     fun attachAudioTrack(link: ExtractorLink, audioUrl: String, headers: Map<String, String>) {
-        if (!isSupported()) return
+        attachAudioTracks(link, listOf(audioUrl to headers))
+    }
+
+    fun attachAudioTracks(link: ExtractorLink, tracks: List<Pair<String, Map<String, String>>>) {
+        if (!isSupported() || tracks.isEmpty()) return
         try {
-            val audioObj = audioFileConstructor?.newInstance(audioUrl, headers) ?: return
-            val list = listOf(audioObj)
-            setAudioTracksMethod?.invoke(link, list)
+            val audioObjs = tracks.mapNotNull { (url, headers) ->
+                audioFileConstructor?.newInstance(url, headers)
+            }
+            if (audioObjs.isNotEmpty()) {
+                setAudioTracksMethod?.invoke(link, audioObjs)
+            }
         } catch (t: Throwable) {
-            Log.w(TAG, "Failed to attach audio track to link: ${t.message}")
+            Log.w(TAG, "Failed to attach audio tracks to link: ${t.message}")
         }
     }
 }

@@ -1,7 +1,6 @@
 package com.youtube.ui
 
 import android.content.Context
-import android.graphics.Color
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -16,7 +15,7 @@ object SettingsContentSection {
         context: Context,
         statusText: TextView
     ): Pair<LinearLayout, LinearLayout> {
-        val header = SettingsComponents.createSectionHeader(context, "FEED & CONTENT CUSTOMIZATION", "🎯")
+        val header = SettingsComponents.createSectionHeader(context, "FEED & CONTENT CUSTOMIZATION")
         val contentCard = SettingsComponents.createCardContainer(context)
 
         // 1. Shorts Handling Mode
@@ -26,7 +25,6 @@ object SettingsContentSection {
 
         val shortsRow = SettingsComponents.createSettingRow(
             context = context,
-            iconEmoji = "⚡",
             title = "Shorts Handling",
             description = "How vertical shorts appear on your home screen",
             badgeText = shortsOptions[currentShortsIdx]
@@ -49,7 +47,6 @@ object SettingsContentSection {
         // 2. Hide Watched / Unwatched Only Toggle
         val unwatchedRow = SettingsComponents.createSwitchRow(
             context = context,
-            iconEmoji = "👁️",
             title = "Unwatched Only in Subscriptions",
             description = "Filter out completed videos from your subscription feed",
             initialChecked = YoutubePreferences.hideWatchedInSubscriptions
@@ -67,7 +64,6 @@ object SettingsContentSection {
 
         val limitRow = SettingsComponents.createSettingRow(
             context = context,
-            iconEmoji = "🔢",
             title = "Items Per Row Limit",
             description = "Maximum videos to display in each feed row",
             badgeText = itemLimitOptions[currentLimitIdx]
@@ -98,7 +94,6 @@ object SettingsContentSection {
 
         val regionRow = SettingsComponents.createSettingRow(
             context = context,
-            iconEmoji = "🌍",
             title = "Trending Region / Country",
             description = "Geographic locale for trending videos",
             badgeText = regionNames[currentRegionIdx]
@@ -126,7 +121,6 @@ object SettingsContentSection {
 
         val langRow = SettingsComponents.createSettingRow(
             context = context,
-            iconEmoji = "🌐",
             title = "Content Language",
             description = "Language localization for titles and categories",
             badgeText = langNames[currentLangIdx]
@@ -149,7 +143,7 @@ object SettingsContentSection {
     }
 
     fun buildSearchAndHistoryCard(context: Context): Pair<LinearLayout, LinearLayout> {
-        val header = SettingsComponents.createSectionHeader(context, "SEARCH & HISTORY", "🔍")
+        val header = SettingsComponents.createSectionHeader(context, "SEARCH & HISTORY")
         val searchCard = SettingsComponents.createCardContainer(context)
 
         val searchFilterOptions = arrayOf("All Results (Default)", "Videos Only", "Channels Only", "Playlists Only")
@@ -158,7 +152,6 @@ object SettingsContentSection {
 
         val searchFilterRow = SettingsComponents.createSettingRow(
             context = context,
-            iconEmoji = "🎯",
             title = "Default Search Filter",
             description = "Default category filter for search queries",
             badgeText = searchFilterOptions[currentSearchFilterIdx]
@@ -180,8 +173,6 @@ object SettingsContentSection {
 
         val clearHistoryRow = SettingsComponents.createActionItemRow(
             context = context,
-            iconEmoji = "🧹",
-            iconBgColor = Color.parseColor("#212538"),
             title = "Clear Search & Watch History",
             description = "Resets search query history and unwatched flags",
             buttonLabel = "Clear",
@@ -189,7 +180,7 @@ object SettingsContentSection {
             onClick = {
                 YoutubePreferences.clearSearchHistory()
                 YoutubePreferences.clearWatchHistory()
-                Toast.makeText(context, "Search and watch history cleared!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Search and watch history cleared.", Toast.LENGTH_SHORT).show()
             }
         )
         searchCard.addView(clearHistoryRow)

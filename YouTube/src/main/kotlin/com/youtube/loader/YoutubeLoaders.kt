@@ -83,9 +83,9 @@ object YoutubeLoaders {
         } else ""
 
         // Rich video details: views, likes, upload date, chapters
-        val viewsText = if (info.viewCount > 0) "👁️ ${YoutubeEpisodeMapper.formatCount(info.viewCount)} views" else ""
-        val likesText = if (info.likeCount > 0) "👍 ${YoutubeEpisodeMapper.formatCount(info.likeCount)} likes" else ""
-        val dateText = info.textualUploadDate?.takeIf { it.isNotBlank() }?.let { "📅 $it" } ?: ""
+        val viewsText = if (info.viewCount > 0) "${YoutubeEpisodeMapper.formatCount(info.viewCount)} views" else ""
+        val likesText = if (info.likeCount > 0) "${YoutubeEpisodeMapper.formatCount(info.likeCount)} likes" else ""
+        val dateText = info.textualUploadDate?.takeIf { it.isNotBlank() } ?: ""
 
         val statsLine = listOf(viewsText, likesText, dateText).filter { it.isNotBlank() }.joinToString(" • ")
 
@@ -98,16 +98,16 @@ object YoutubeLoaders {
         val chaptersSection = if (!segments.isNullOrEmpty()) {
             val chapterLines = segments.joinToString("\n") { seg ->
                 val ts = YoutubeEpisodeMapper.formatSecondsToTimestamp(seg.startTimeSeconds)
-                "• $ts ${seg.title ?: "Chapter"}"
+                "- $ts ${seg.title ?: "Chapter"}"
             }
-            "📖 Chapters:\n$chapterLines\n\n"
+            "Chapters:\n$chapterLines\n\n"
         } else ""
 
         val enrichedPlot = buildString {
             when {
-                isUpcoming -> append("⏳ Scheduled / Upcoming Live Stream: Broadcast has not started yet.\n\n")
-                isLiveStream -> append("🔴 LIVE NOW: Real-time broadcast\n\n")
-                isPostLive -> append("⏹️ Stream Ended: Broadcast has concluded and is being processed by YouTube.\n\n")
+                isUpcoming -> append("Scheduled / Upcoming Live Stream: Broadcast has not started yet.\n\n")
+                isLiveStream -> append("LIVE NOW: Real-time broadcast\n\n")
+                isPostLive -> append("Stream Ended: Broadcast has concluded and is being processed by YouTube.\n\n")
             }
             if (statsLine.isNotBlank()) {
                 append("$statsLine\n\n")
@@ -185,13 +185,7 @@ object YoutubeLoaders {
                 else -> continue // Skip /community, /about, etc.
             }
 
-            val prefix = when (seasonNum) {
-                1 -> ""
-                2 -> "⚡ "
-                3 -> "🔴 "
-                4 -> "📋 "
-                else -> ""
-            }
+            val prefix = ""
 
             try {
                 val tabExtractor = service.getChannelTabExtractor(tab)

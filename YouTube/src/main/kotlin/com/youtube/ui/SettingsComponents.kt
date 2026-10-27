@@ -32,7 +32,7 @@ object SettingsComponents {
     fun createCardContainer(context: Context): LinearLayout {
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            background = createRoundedDrawable(COLOR_CARD_BG, 18f, COLOR_CARD_BORDER, 1f, context)
+            background = createRoundedDrawable(COLOR_CARD_BG, 14f, COLOR_CARD_BORDER, 1f, context)
             setPadding(0, dp(context, 4), 0, dp(context, 4))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -48,21 +48,17 @@ object SettingsComponents {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(context, 1)
             ).apply {
-                marginStart = dp(context, 60)
+                marginStart = dp(context, 16)
+                marginEnd = dp(context, 16)
             }
         }
     }
 
-    fun createSectionHeader(context: Context, title: String, icon: String): LinearLayout {
+    fun createSectionHeader(context: Context, title: String): LinearLayout {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(context, 4), dp(context, 12), dp(context, 4), dp(context, 6))
-        }
-        val iconView = TextView(context).apply {
-            text = icon
-            textSize = 12f
-            setPadding(0, 0, dp(context, 6), 0)
+            setPadding(dp(context, 4), dp(context, 14), dp(context, 4), dp(context, 6))
         }
         val textView = TextView(context).apply {
             text = title
@@ -71,7 +67,6 @@ object SettingsComponents {
             setTypeface(null, Typeface.BOLD)
             letterSpacing = 0.05f
         }
-        row.addView(iconView)
         row.addView(textView)
         return row
     }
@@ -79,22 +74,16 @@ object SettingsComponents {
     fun createSectionHeaderWithBadge(
         context: Context,
         title: String,
-        iconEmoji: String,
         badgeCount: Int
     ): Pair<LinearLayout, TextView> {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(context, 4), dp(context, 12), dp(context, 4), dp(context, 6))
+            setPadding(dp(context, 4), dp(context, 14), dp(context, 4), dp(context, 6))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
-        }
-        val iconView = TextView(context).apply {
-            text = iconEmoji
-            textSize = 12f
-            setPadding(0, 0, dp(context, 6), 0)
         }
         val textView = TextView(context).apply {
             text = title
@@ -112,7 +101,6 @@ object SettingsComponents {
             background = createRoundedDrawable(COLOR_PRIMARY_TINT, 10f, COLOR_PRIMARY, 1f, context)
             setPadding(dp(context, 8), dp(context, 2), dp(context, 8), dp(context, 2))
         }
-        row.addView(iconView)
         row.addView(textView)
         row.addView(badge)
         return Pair(row, badge)
@@ -120,7 +108,6 @@ object SettingsComponents {
 
     fun createSettingRow(
         context: Context,
-        iconEmoji: String,
         title: String,
         description: String,
         badgeText: String,
@@ -130,35 +117,17 @@ object SettingsComponents {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = createRippleDrawable(context, Color.TRANSPARENT, COLOR_RIPPLE, 14f)
-            setPadding(dp(context, 14), dp(context, 12), dp(context, 14), dp(context, 12))
+            setPadding(dp(context, 16), dp(context, 12), dp(context, 16), dp(context, 12))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         }
 
-        val iconBox = FrameLayout(context).apply {
-            background = createRoundedDrawable(Color.parseColor("#202334"), 12f, 0, 0f, context)
-            layoutParams = LinearLayout.LayoutParams(dp(context, 38), dp(context, 38)).apply {
-                marginEnd = dp(context, 12)
-            }
-        }
-        val iconText = TextView(context).apply {
-            text = iconEmoji
-            textSize = 16f
-            gravity = Gravity.CENTER
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        }
-        iconBox.addView(iconText)
-        row.addView(iconBox)
-
         val textCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = dp(context, 8)
+                marginEnd = dp(context, 12)
             }
         }
         val titleView = TextView(context).apply {
@@ -182,7 +151,7 @@ object SettingsComponents {
             setTextColor(COLOR_PRIMARY_LIGHT)
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
-            background = createRoundedDrawable(COLOR_PRIMARY_TINT, 12f, COLOR_PRIMARY, 1f, context)
+            background = createRoundedDrawable(COLOR_PRIMARY_TINT, 10f, COLOR_PRIMARY, 1f, context)
             setPadding(dp(context, 10), dp(context, 5), dp(context, 10), dp(context, 5))
         }
         row.addView(badge)
@@ -193,7 +162,6 @@ object SettingsComponents {
 
     fun createSwitchRow(
         context: Context,
-        iconEmoji: String,
         title: String,
         description: String,
         initialChecked: Boolean,
@@ -203,35 +171,17 @@ object SettingsComponents {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = createRippleDrawable(context, Color.TRANSPARENT, COLOR_RIPPLE, 14f)
-            setPadding(dp(context, 14), dp(context, 10), dp(context, 14), dp(context, 10))
+            setPadding(dp(context, 16), dp(context, 10), dp(context, 16), dp(context, 10))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         }
 
-        val iconBox = FrameLayout(context).apply {
-            background = createRoundedDrawable(Color.parseColor("#202334"), 12f, 0, 0f, context)
-            layoutParams = LinearLayout.LayoutParams(dp(context, 38), dp(context, 38)).apply {
-                marginEnd = dp(context, 12)
-            }
-        }
-        val iconText = TextView(context).apply {
-            text = iconEmoji
-            textSize = 16f
-            gravity = Gravity.CENTER
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        }
-        iconBox.addView(iconText)
-        row.addView(iconBox)
-
         val textCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = dp(context, 8)
+                marginEnd = dp(context, 12)
             }
         }
         val titleView = TextView(context).apply {
@@ -269,8 +219,6 @@ object SettingsComponents {
 
     fun createActionItemRow(
         context: Context,
-        iconEmoji: String,
-        iconBgColor: Int,
         title: String,
         description: String,
         buttonLabel: String,
@@ -281,35 +229,17 @@ object SettingsComponents {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = createRippleDrawable(context, Color.TRANSPARENT, COLOR_RIPPLE, 14f)
-            setPadding(dp(context, 14), dp(context, 12), dp(context, 14), dp(context, 12))
+            setPadding(dp(context, 16), dp(context, 12), dp(context, 16), dp(context, 12))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         }
 
-        val iconBox = FrameLayout(context).apply {
-            background = createRoundedDrawable(iconBgColor, 12f, 0, 0f, context)
-            layoutParams = LinearLayout.LayoutParams(dp(context, 38), dp(context, 38)).apply {
-                marginEnd = dp(context, 12)
-            }
-        }
-        val iconText = TextView(context).apply {
-            text = iconEmoji
-            textSize = 16f
-            gravity = Gravity.CENTER
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        }
-        iconBox.addView(iconText)
-        row.addView(iconBox)
-
         val textCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = dp(context, 8)
+                marginEnd = dp(context, 12)
             }
         }
         val titleView = TextView(context).apply {
@@ -358,8 +288,8 @@ object SettingsComponents {
             background = GradientDrawable().apply {
                 setColor(COLOR_SHEET_BG)
                 cornerRadii = floatArrayOf(
-                    dp(context, 24).toFloat(), dp(context, 24).toFloat(),
-                    dp(context, 24).toFloat(), dp(context, 24).toFloat(),
+                    dp(context, 20).toFloat(), dp(context, 20).toFloat(),
+                    dp(context, 20).toFloat(), dp(context, 20).toFloat(),
                     0f, 0f, 0f, 0f
                 )
             }
@@ -416,7 +346,7 @@ object SettingsComponents {
                 gravity = Gravity.CENTER_VERTICAL
                 val bgColor = if (isSelected) COLOR_PRIMARY_TINT else COLOR_CARD_BG
                 val borderColor = if (isSelected) COLOR_PRIMARY else COLOR_CARD_BORDER
-                background = createRippleDrawable(context, bgColor, COLOR_RIPPLE, 14f, borderColor, if (isSelected) 1.5f else 1f)
+                background = createRippleDrawable(context, bgColor, COLOR_RIPPLE, 12f, borderColor, if (isSelected) 1.5f else 1f)
                 setPadding(dp(context, 16), dp(context, 12), dp(context, 16), dp(context, 12))
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
