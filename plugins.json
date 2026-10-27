@@ -1,10 +1,10 @@
 [
     {
         "iconUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/512px-YouTube_full-color_icon_%282017%29.svg.png",
-        "fileHash": "sha256-6659efe5ffbcc0d45cfb456d04f12719c52991043b3920d3b5129f4dbe30c44e",
+        "fileHash": "sha256-ddf6181d7e161a123359c6c84bc4c5e19934a86d1c9911f34a41fd8f8d5bad16",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/dwaraa/YT-CS3",
-        "fileSize": 61162,
+        "fileSize": 69225,
         "status": 1,
         "language": "en",
         "authors": [
@@ -17,7 +17,7 @@
             "TvSeries",
             "Movie"
         ],
-        "version": 1,
+        "version": 2,
         "internalName": "YouTube",
         "description": "Watch YouTube videos, channels, playlists, and live streams in Cloudstream",
         "url": "https://raw.githubusercontent.com/dwaraa/YT-CS3/builds/YouTube.cs3",
