@@ -73,10 +73,14 @@ subprojects {
 
     dependencies {
         val cloudstream by configurations
+        val compileOnly by configurations
         val implementation by configurations
         val testImplementation by configurations
 
         cloudstream("com.lagradost:cloudstream3:pre-release")
+        compileOnly("com.google.android.material:material:1.12.0")
+        compileOnly("androidx.appcompat:appcompat:1.7.0")
+        compileOnly("androidx.core:core-ktx:1.15.0")
 
         implementation(kotlin("stdlib"))
         implementation("com.github.Blatzar:NiceHttp:0.4.11")

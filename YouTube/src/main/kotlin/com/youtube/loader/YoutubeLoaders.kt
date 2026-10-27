@@ -103,23 +103,43 @@ object YoutubeLoaders {
             "Chapters:\n$chapterLines\n\n"
         } else ""
 
-        val enrichedPlot = buildString {
-            when {
-                isUpcoming -> append("Scheduled / Upcoming Live Stream: Broadcast has not started yet.\n\n")
-                isLiveStream -> append("LIVE NOW: Real-time broadcast\n\n")
-                isPostLive -> append("Stream Ended: Broadcast has concluded and is being processed by YouTube.\n\n")
-            }
-            if (statsLine.isNotBlank()) {
-                append("$statsLine\n\n")
-            }
-            if (exactDurationText.isNotBlank()) {
-                append("⏱️ Runtime: $exactDurationText\n\n")
-            }
-            if (chaptersSection.isNotBlank()) {
-                append(chaptersSection)
-            }
-            append(rawDescription)
+        val liveStatusHeader = when {
+            isUpcoming -> "Scheduled / Upcoming Live Stream: Broadcast has not started yet."
+            isLiveStream -> "LIVE NOW: Real-time broadcast"
+            isPostLive -> "Stream Ended: Broadcast has concluded and is being processed by YouTube."
+            else -> null
         }
+
+        val metaParts = listOfNotNull(
+            statsLine.takeIf { it.isNotBlank() },
+            exactDurationText.takeIf { it.isNotBlank() }?.let { "Duration: $it" }
+        )
+        val unifiedMeta = metaParts.joinToString(" • ")
+
+        val chaptersBlock = if (!segments.isNullOrEmpty()) {
+            val lines = segments.map { seg ->
+                val ts = YoutubeEpisodeMapper.formatSecondsToTimestamp(seg.startTimeSeconds)
+                val chapterTitle = seg.title?.trim() ?: "Chapter"
+                "$ts $chapterTitle"
+            }
+            "Chapters:\n" + lines.joinToString("\n")
+        } else null
+
+        val cleanDescText = rawDescription
+            .takeIf { it.isNotBlank() && it != "null" }
+            ?.replace("\r\n", "\n")
+            ?.replace("\r", "\n")
+            ?.replace(Regex("""\n{3,}"""), "\n\n")
+            ?.trim()
+
+        val plotSections = listOfNotNull(
+            liveStatusHeader,
+            unifiedMeta.takeIf { it.isNotBlank() },
+            chaptersBlock,
+            cleanDescText
+        )
+
+        val enrichedPlot = plotSections.joinToString("\n\n")
 
         val uploadYear = try {
             info.uploadDate?.offsetDateTime()?.year
@@ -164,7 +184,12 @@ object YoutubeLoaders {
         extractor.fetchPage()
 
         val channelName = extractor.name ?: "YouTube Channel"
-        val channelDescription = extractor.description ?: ""
+        val channelDescription = extractor.description
+            ?.takeIf { it.isNotBlank() && it != "null" }
+            ?.replace("\r\n", "\n")
+            ?.replace("\r", "\n")
+            ?.replace(Regex("""\n{3,}"""), "\n\n")
+            ?.trim() ?: ""
         val channelAvatar = extractor.avatars.lastOrNull()?.url
         val channelBanner = extractor.banners.lastOrNull()?.url
 

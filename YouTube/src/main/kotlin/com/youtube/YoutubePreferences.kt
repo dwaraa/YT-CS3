@@ -15,6 +15,7 @@ data class SubscribedChannel(
 
 enum class HomeRowType(val prefKey: String, val displayName: String, val defaultEnabled: Boolean) {
     COMBINED_SUBSCRIPTIONS("show_combined_subscriptions", "Subscribed: Latest Videos", true),
+    SUBSCRIBED_CHANNELS("show_subscribed_channels", "Subscribed Channels (Vertical Posters)", true),
     SHORTS("show_shorts", "YouTube Shorts", true),
     INDIVIDUAL_CHANNELS("show_individual_channels", "Individual Subscribed Channels", true),
     TRENDING("show_trending", "Trending", true),

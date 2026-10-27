@@ -1,32 +1,19 @@
 package com.youtube.ui
 
-import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.*
+import androidx.appcompat.app.AlertDialog
 import com.youtube.SubscribedChannel
 import com.youtube.YoutubePreferences
 import com.youtube.YoutubeProvider
 import com.youtube.subscription.YoutubeSubscriptionImporter
-import com.youtube.ui.SettingsTheme.COLOR_CARD_BORDER
-import com.youtube.ui.SettingsTheme.COLOR_DANGER_BG
-import com.youtube.ui.SettingsTheme.COLOR_DANGER_TEXT
-import com.youtube.ui.SettingsTheme.COLOR_INNER_BG
-import com.youtube.ui.SettingsTheme.COLOR_PRIMARY
-import com.youtube.ui.SettingsTheme.COLOR_RIPPLE
-import com.youtube.ui.SettingsTheme.COLOR_TEXT_MUTED
-import com.youtube.ui.SettingsTheme.COLOR_TEXT_PRIMARY
-import com.youtube.ui.SettingsTheme.COLOR_TEXT_SECONDARY
-import com.youtube.ui.SettingsTheme.createInitialsGradient
-import com.youtube.ui.SettingsTheme.createRippleDrawable
-import com.youtube.ui.SettingsTheme.createRoundedDrawable
 import com.youtube.ui.SettingsTheme.dp
 import com.youtube.ui.SettingsTheme.loadAvatarInto
 import org.schabi.newpipe.extractor.ServiceList
@@ -38,23 +25,26 @@ object SubscriptionDialogs {
         container.removeAllViews()
         val channels = YoutubePreferences.getSubscribedChannels()
 
+        val textPrimary = SettingsTheme.getTextPrimaryColor(context)
+        val textSecondary = SettingsTheme.getTextSecondaryColor(context)
+
         if (channels.isEmpty()) {
             val emptyBox = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
-                setPadding(0, dp(context, 14), 0, dp(context, 8))
+                setPadding(dp(context, 16), dp(context, 20), dp(context, 16), dp(context, 16))
             }
             val emptyTitle = TextView(context).apply {
                 text = "No Subscribed Channels"
-                setTextColor(COLOR_TEXT_PRIMARY)
-                textSize = 13.5f
+                setTextColor(textPrimary)
+                textSize = 14f
                 setTypeface(null, Typeface.BOLD)
-                setPadding(0, dp(context, 4), 0, dp(context, 2))
+                setPadding(0, 0, 0, dp(context, 4))
             }
             val emptyDesc = TextView(context).apply {
-                text = "Type a channel handle or URL above to add your favorite creators."
-                setTextColor(COLOR_TEXT_MUTED)
-                textSize = 11.5f
+                text = "Add channel handles or URLs to personalize your feed."
+                setTextColor(textSecondary)
+                textSize = 12f
                 gravity = Gravity.CENTER_HORIZONTAL
             }
             emptyBox.addView(emptyTitle)
@@ -67,47 +57,23 @@ object SubscriptionDialogs {
             val item = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                background = createRoundedDrawable(COLOR_INNER_BG, 14f, COLOR_CARD_BORDER, 1f, context)
-                setPadding(dp(context, 10), dp(context, 8), dp(context, 10), dp(context, 8))
+                background = SettingsTheme.getSelectableItemBackground(context)
+                setPadding(dp(context, 16), dp(context, 10), dp(context, 16), dp(context, 10))
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp(context, 8) }
-            }
-
-            // Avatar Container (Initials placeholder + async image)
-            val avatarFrame = FrameLayout(context).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(context, 40), dp(context, 40)).apply {
-                    marginEnd = dp(context, 10)
-                }
-            }
-
-            val initialsView = TextView(context).apply {
-                val initials = channel.name.trim().take(2).uppercase()
-                text = initials
-                setTextColor(Color.WHITE)
-                textSize = 12f
-                setTypeface(null, Typeface.BOLD)
-                gravity = Gravity.CENTER
-                background = createInitialsGradient(channel.name)
-                layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
                 )
             }
-            avatarFrame.addView(initialsView)
 
+            // Avatar Container (Circular async image)
             val avatarImageView = ImageView(context).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
+                layoutParams = LinearLayout.LayoutParams(dp(context, 38), dp(context, 38)).apply {
+                    marginEnd = dp(context, 12)
+                }
             }
-            avatarFrame.addView(avatarImageView)
-
+            item.addView(avatarImageView)
             loadAvatarInto(channel.avatarUrl, avatarImageView, channel.url)
-            item.addView(avatarFrame)
 
             // Channel Names
             val channelInfo = LinearLayout(context).apply {
@@ -117,15 +83,15 @@ object SubscriptionDialogs {
 
             val nameView = TextView(context).apply {
                 text = channel.name
-                setTextColor(COLOR_TEXT_PRIMARY)
-                textSize = 13.5f
-                setTypeface(null, Typeface.BOLD)
+                setTextColor(textPrimary)
+                textSize = 14.5f
+                setTypeface(null, Typeface.NORMAL)
                 maxLines = 1
             }
             val handleView = TextView(context).apply {
                 text = channel.url.substringAfterLast("/")
-                setTextColor(COLOR_TEXT_SECONDARY)
-                textSize = 11.5f
+                setTextColor(textSecondary)
+                textSize = 12f
                 maxLines = 1
             }
             channelInfo.addView(nameView)
@@ -135,28 +101,34 @@ object SubscriptionDialogs {
             // Remove Button
             val removeBtn = TextView(context).apply {
                 text = "✕"
-                setTextColor(COLOR_DANGER_TEXT)
-                textSize = 14f
-                setTypeface(null, Typeface.BOLD)
+                setTextColor(androidx.core.content.ContextCompat.getColor(context, android.R.color.holo_red_light))
+                textSize = 15f
                 gravity = Gravity.CENTER
-                background = createRippleDrawable(context, COLOR_DANGER_BG, COLOR_RIPPLE, 10f, Color.parseColor("#421C22"), 1f)
-                layoutParams = LinearLayout.LayoutParams(dp(context, 32), dp(context, 32))
+                setPadding(dp(context, 8), dp(context, 8), dp(context, 8), dp(context, 8))
                 setOnClickListener {
-                    YoutubePreferences.removeChannel(channel.url)
-                    refreshChannelList(context, container, onChannelCountChanged)
-                    onChannelCountChanged?.invoke()
-                    Toast.makeText(context, "Removed '${channel.name}'", Toast.LENGTH_SHORT).show()
+                    AlertDialog.Builder(context)
+                        .setTitle("Remove Channel")
+                        .setMessage("Unsubscribe from '${channel.name}'?")
+                        .setPositiveButton("Remove") { _, _ ->
+                            YoutubePreferences.removeChannel(channel.url)
+                            refreshChannelList(context, container, onChannelCountChanged)
+                            onChannelCountChanged?.invoke()
+                            Toast.makeText(context, "Removed '${channel.name}'", Toast.LENGTH_SHORT).show()
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
                 }
             }
             item.addView(removeBtn)
 
             container.addView(item)
+            container.addView(SettingsComponents.createDivider(context))
         }
     }
 
     fun resolveAndAddChannel(context: Context, rawInput: String, onDone: () -> Unit) {
         val handler = Handler(Looper.getMainLooper())
-        Toast.makeText(context, "Resolving channel with NewPipe...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Resolving channel...", Toast.LENGTH_SHORT).show()
 
         val normalizedUrl = when {
             rawInput.startsWith("http") -> rawInput
@@ -194,11 +166,11 @@ object SubscriptionDialogs {
                 if (resolutionError != null) {
                     Toast.makeText(
                         context,
-                        "Added '$channelName' (Note: Could not fetch avatar: $resolutionError)",
+                        "Added '$channelName' (Avatar pending: $resolutionError)",
                         Toast.LENGTH_LONG
                     ).show()
                 } else {
-                    Toast.makeText(context, "Added '$channelName' to subscriptions!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Added '$channelName' to subscriptions.", Toast.LENGTH_SHORT).show()
                 }
                 onDone()
             }
@@ -213,34 +185,26 @@ object SubscriptionDialogs {
 
         val desc = TextView(context).apply {
             text = "Paste your subscriptions data in NewPipe JSON, Google Takeout CSV, or OPML format below:"
-            setTextColor(COLOR_TEXT_SECONDARY)
-            textSize = 12f
+            setTextColor(SettingsTheme.getTextSecondaryColor(context))
+            textSize = 12.5f
             setPadding(0, 0, 0, dp(context, 8))
         }
         root.addView(desc)
 
         val input = EditText(context).apply {
             hint = "Paste JSON, CSV, or OPML here..."
-            setHintTextColor(COLOR_TEXT_MUTED)
-            setTextColor(COLOR_TEXT_PRIMARY)
-            textSize = 12f
+            setTextColor(SettingsTheme.getTextPrimaryColor(context))
+            textSize = 13f
             minLines = 6
             maxLines = 10
             gravity = Gravity.TOP or Gravity.START
-            background = createRoundedDrawable(COLOR_INNER_BG, 10f, COLOR_CARD_BORDER, 1f, context)
-            setPadding(dp(context, 10), dp(context, 8), dp(context, 10), dp(context, 8))
         }
         root.addView(input)
 
         val pasteBtn = Button(context).apply {
             text = "Paste from Clipboard"
-            setTextColor(COLOR_PRIMARY)
-            textSize = 11.5f
-            background = createRippleDrawable(context, COLOR_INNER_BG, COLOR_RIPPLE, 8f, COLOR_CARD_BORDER, 1f)
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(context, 8) }
+            setTextColor(SettingsTheme.getPrimaryColor(context))
+            textSize = 12f
             setOnClickListener {
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                 val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
@@ -268,7 +232,7 @@ object SubscriptionDialogs {
                     Toast.makeText(context, res.errorMessage ?: "Could not detect channels in input", Toast.LENGTH_LONG).show()
                 } else {
                     val added = YoutubePreferences.importChannels(res.importedChannels)
-                    Toast.makeText(context, "Imported $added new channels (${res.totalFound} found in ${res.format})!", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Imported $added new channels (${res.totalFound} found in ${res.format}).", Toast.LENGTH_LONG).show()
                     onImportComplete()
                 }
             }

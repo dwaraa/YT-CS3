@@ -1,24 +1,38 @@
 package com.youtube.ui
 
 import android.content.Context
-import android.widget.LinearLayout
+import android.view.View
 import android.widget.TextView
 import android.widget.Toast
+import com.youtube.HomeRowType
 import com.youtube.SearchContentFilter
-import com.youtube.SearchSortOrder
 import com.youtube.ShortsMode
 import com.youtube.YoutubePreferences
 
 object SettingsContentSection {
 
-    fun buildContentCustomizationCard(
+    fun buildContentCustomizationViews(
         context: Context,
         statusText: TextView
-    ): Pair<LinearLayout, LinearLayout> {
-        val header = SettingsComponents.createSectionHeader(context, "FEED & CONTENT CUSTOMIZATION")
-        val contentCard = SettingsComponents.createCardContainer(context)
+    ): List<View> {
+        val views = mutableListOf<View>()
 
-        // 1. Shorts Handling Mode
+        views.add(SettingsComponents.createSectionHeader(context, "Feed & Content Customization"))
+
+        // 1. Subscribed Channels Row (Vertical Posters)
+        val channelsRowToggle = SettingsComponents.createSwitchRow(
+            context = context,
+            title = "Subscribed Channels Row",
+            description = "Show channel avatars in a vertical poster row on home screen",
+            initialChecked = YoutubePreferences.isRowEnabled(HomeRowType.SUBSCRIBED_CHANNELS)
+        ) { checked ->
+            YoutubePreferences.setRowEnabled(HomeRowType.SUBSCRIBED_CHANNELS, checked)
+            Toast.makeText(context, if (checked) "Subscribed Channels row enabled" else "Subscribed Channels row disabled", Toast.LENGTH_SHORT).show()
+        }
+        views.add(channelsRowToggle)
+        views.add(SettingsComponents.createDivider(context))
+
+        // 2. Shorts Handling Mode
         val shortsOptions = arrayOf("Show in feeds (Default)", "Dedicated Shorts row", "Hide all Shorts")
         val shortsValues = arrayOf(ShortsMode.SHOW_INLINE, ShortsMode.SEPARATE_ROW, ShortsMode.HIDE)
         val currentShortsIdx = shortsValues.indexOf(YoutubePreferences.shortsMode).let { if (it >= 0) it else 0 }
@@ -27,12 +41,11 @@ object SettingsContentSection {
             context = context,
             title = "Shorts Handling",
             description = "How vertical shorts appear on your home screen",
-            badgeText = shortsOptions[currentShortsIdx]
+            valueText = shortsOptions[currentShortsIdx]
         ) { badgeView ->
-            SettingsComponents.showCloudStreamSelectionDialog(
+            SettingsComponents.showSingleChoiceDialog(
                 context = context,
-                dialogTitle = "Shorts Handling",
-                dialogSubtitle = "Choose how YouTube Shorts should be displayed",
+                title = "Shorts Handling",
                 options = shortsOptions,
                 selectedIndex = shortsValues.indexOf(YoutubePreferences.shortsMode).let { if (it >= 0) it else 0 }
             ) { newIdx ->
@@ -41,10 +54,10 @@ object SettingsContentSection {
                 Toast.makeText(context, "Shorts mode set to ${shortsOptions[newIdx]}", Toast.LENGTH_SHORT).show()
             }
         }
-        contentCard.addView(shortsRow)
-        contentCard.addView(SettingsComponents.createDivider(context))
+        views.add(shortsRow)
+        views.add(SettingsComponents.createDivider(context))
 
-        // 2. Hide Watched / Unwatched Only Toggle
+        // 3. Hide Watched / Unwatched Only Toggle
         val unwatchedRow = SettingsComponents.createSwitchRow(
             context = context,
             title = "Unwatched Only in Subscriptions",
@@ -54,10 +67,10 @@ object SettingsContentSection {
             YoutubePreferences.hideWatchedInSubscriptions = checked
             Toast.makeText(context, if (checked) "Only unwatched videos shown in subscriptions" else "All subscription videos shown", Toast.LENGTH_SHORT).show()
         }
-        contentCard.addView(unwatchedRow)
-        contentCard.addView(SettingsComponents.createDivider(context))
+        views.add(unwatchedRow)
+        views.add(SettingsComponents.createDivider(context))
 
-        // 3. Per-Row Item Limits
+        // 4. Per-Row Item Limits
         val itemLimitOptions = arrayOf("10 videos", "15 videos", "20 videos (Default)", "25 videos", "30 videos", "40 videos")
         val itemLimitValues = arrayOf(10, 15, 20, 25, 30, 40)
         val currentLimitIdx = itemLimitValues.indexOf(YoutubePreferences.itemsPerRowLimit).let { if (it >= 0) it else 2 }
@@ -66,12 +79,11 @@ object SettingsContentSection {
             context = context,
             title = "Items Per Row Limit",
             description = "Maximum videos to display in each feed row",
-            badgeText = itemLimitOptions[currentLimitIdx]
+            valueText = itemLimitOptions[currentLimitIdx]
         ) { badgeView ->
-            SettingsComponents.showCloudStreamSelectionDialog(
+            SettingsComponents.showSingleChoiceDialog(
                 context = context,
-                dialogTitle = "Items Per Row Limit",
-                dialogSubtitle = "Adjust the maximum videos loaded per row",
+                title = "Items Per Row Limit",
                 options = itemLimitOptions,
                 selectedIndex = itemLimitValues.indexOf(YoutubePreferences.itemsPerRowLimit).let { if (it >= 0) it else 2 }
             ) { newIdx ->
@@ -80,10 +92,10 @@ object SettingsContentSection {
                 Toast.makeText(context, "Row limit set to ${itemLimitOptions[newIdx]}", Toast.LENGTH_SHORT).show()
             }
         }
-        contentCard.addView(limitRow)
-        contentCard.addView(SettingsComponents.createDivider(context))
+        views.add(limitRow)
+        views.add(SettingsComponents.createDivider(context))
 
-        // 4. Trending Country / Region
+        // 5. Trending Country / Region
         val regionNames = arrayOf(
             "United States (US)", "United Kingdom (GB)", "India (IN)", "Canada (CA)",
             "Germany (DE)", "France (FR)", "Japan (JP)", "Brazil (BR)",
@@ -96,25 +108,24 @@ object SettingsContentSection {
             context = context,
             title = "Trending Region / Country",
             description = "Geographic locale for trending videos",
-            badgeText = regionNames[currentRegionIdx]
+            valueText = regionNames[currentRegionIdx]
         ) { badgeView ->
-            SettingsComponents.showCloudStreamSelectionDialog(
+            SettingsComponents.showSingleChoiceDialog(
                 context = context,
-                dialogTitle = "Trending Region",
-                dialogSubtitle = "Select the country for trending and popular feeds",
+                title = "Trending Region",
                 options = regionNames,
                 selectedIndex = regionCodes.indexOf(YoutubePreferences.trendingRegion).let { if (it >= 0) it else 0 }
             ) { newIdx ->
                 YoutubePreferences.trendingRegion = regionCodes[newIdx]
                 badgeView.text = "${regionNames[newIdx]}  ›"
-                statusText.text = "Active • ${YoutubePreferences.getSubscribedChannels().size} Channels • Region: ${regionCodes[newIdx]}"
+                statusText.text = "${YoutubePreferences.getSubscribedChannels().size} Channels • Region: ${regionCodes[newIdx]}"
                 Toast.makeText(context, "Trending region set to ${regionNames[newIdx]}", Toast.LENGTH_SHORT).show()
             }
         }
-        contentCard.addView(regionRow)
-        contentCard.addView(SettingsComponents.createDivider(context))
+        views.add(regionRow)
+        views.add(SettingsComponents.createDivider(context))
 
-        // 5. Content Language
+        // 6. Content Language
         val langNames = arrayOf("English (en)", "Spanish (es)", "Hindi (hi)", "French (fr)", "German (de)", "Japanese (ja)", "Korean (ko)", "Portuguese (pt)", "Arabic (ar)")
         val langCodes = arrayOf("en", "es", "hi", "fr", "de", "ja", "ko", "pt", "ar")
         val currentLangIdx = langCodes.indexOf(YoutubePreferences.contentLanguage).let { if (it >= 0) it else 0 }
@@ -123,12 +134,11 @@ object SettingsContentSection {
             context = context,
             title = "Content Language",
             description = "Language localization for titles and categories",
-            badgeText = langNames[currentLangIdx]
+            valueText = langNames[currentLangIdx]
         ) { badgeView ->
-            SettingsComponents.showCloudStreamSelectionDialog(
+            SettingsComponents.showSingleChoiceDialog(
                 context = context,
-                dialogTitle = "Content Language",
-                dialogSubtitle = "Choose the localization language for content",
+                title = "Content Language",
                 options = langNames,
                 selectedIndex = langCodes.indexOf(YoutubePreferences.contentLanguage).let { if (it >= 0) it else 0 }
             ) { newIdx ->
@@ -137,14 +147,16 @@ object SettingsContentSection {
                 Toast.makeText(context, "Language set to ${langNames[newIdx]}", Toast.LENGTH_SHORT).show()
             }
         }
-        contentCard.addView(langRow)
+        views.add(langRow)
+        views.add(SettingsComponents.createDivider(context))
 
-        return Pair(header, contentCard)
+        return views
     }
 
-    fun buildSearchAndHistoryCard(context: Context): Pair<LinearLayout, LinearLayout> {
-        val header = SettingsComponents.createSectionHeader(context, "SEARCH & HISTORY")
-        val searchCard = SettingsComponents.createCardContainer(context)
+    fun buildSearchAndHistoryViews(context: Context): List<View> {
+        val views = mutableListOf<View>()
+
+        views.add(SettingsComponents.createSectionHeader(context, "Search & History"))
 
         val searchFilterOptions = arrayOf("All Results (Default)", "Videos Only", "Channels Only", "Playlists Only")
         val searchFilterValues = arrayOf(SearchContentFilter.ALL, SearchContentFilter.VIDEOS_ONLY, SearchContentFilter.CHANNELS_ONLY, SearchContentFilter.PLAYLISTS_ONLY)
@@ -154,12 +166,11 @@ object SettingsContentSection {
             context = context,
             title = "Default Search Filter",
             description = "Default category filter for search queries",
-            badgeText = searchFilterOptions[currentSearchFilterIdx]
+            valueText = searchFilterOptions[currentSearchFilterIdx]
         ) { badgeView ->
-            SettingsComponents.showCloudStreamSelectionDialog(
+            SettingsComponents.showSingleChoiceDialog(
                 context = context,
-                dialogTitle = "Default Search Filter",
-                dialogSubtitle = "Choose the default content type when searching",
+                title = "Default Search Filter",
                 options = searchFilterOptions,
                 selectedIndex = searchFilterValues.indexOf(YoutubePreferences.searchContentFilter).let { if (it >= 0) it else 0 }
             ) { newIdx ->
@@ -168,23 +179,23 @@ object SettingsContentSection {
                 Toast.makeText(context, "Search filter set to ${searchFilterOptions[newIdx]}", Toast.LENGTH_SHORT).show()
             }
         }
-        searchCard.addView(searchFilterRow)
-        searchCard.addView(SettingsComponents.createDivider(context))
+        views.add(searchFilterRow)
+        views.add(SettingsComponents.createDivider(context))
 
         val clearHistoryRow = SettingsComponents.createActionItemRow(
             context = context,
             title = "Clear Search & Watch History",
             description = "Resets search query history and unwatched flags",
             buttonLabel = "Clear",
-            buttonColor = SettingsTheme.COLOR_PRIMARY,
             onClick = {
                 YoutubePreferences.clearSearchHistory()
                 YoutubePreferences.clearWatchHistory()
                 Toast.makeText(context, "Search and watch history cleared.", Toast.LENGTH_SHORT).show()
             }
         )
-        searchCard.addView(clearHistoryRow)
+        views.add(clearHistoryRow)
+        views.add(SettingsComponents.createDivider(context))
 
-        return Pair(header, searchCard)
+        return views
     }
 }

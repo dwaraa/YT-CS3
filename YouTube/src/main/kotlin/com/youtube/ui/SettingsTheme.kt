@@ -3,112 +3,110 @@ package com.youtube.ui
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.*
-import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.RippleDrawable
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.util.TypedValue
 import android.widget.ImageView
+import androidx.core.content.ContextCompat
 import com.youtube.YoutubePreferences
 import org.schabi.newpipe.extractor.ServiceList
 import kotlin.concurrent.thread
 
 object SettingsTheme {
-    val COLOR_SHEET_BG = Color.parseColor("#101115")
-    val COLOR_CARD_BG = Color.parseColor("#181A23")
-    val COLOR_CARD_BORDER = Color.parseColor("#262836")
-    val COLOR_INNER_BG = Color.parseColor("#13141C")
-    val COLOR_DIVIDER = Color.parseColor("#222432")
-
-    val COLOR_PRIMARY = Color.parseColor("#3D50FA") // CloudStream Indigo
-    val COLOR_PRIMARY_LIGHT = Color.parseColor("#8C9EFF")
-    val COLOR_PRIMARY_TINT = Color.parseColor("#1E2448")
-
-    val COLOR_TEXT_PRIMARY = Color.parseColor("#F1F2F6")
-    val COLOR_TEXT_SECONDARY = Color.parseColor("#9296A6")
-    val COLOR_TEXT_MUTED = Color.parseColor("#646878")
-
-    val COLOR_YOUTUBE_RED = Color.parseColor("#E50914")
-    val COLOR_DANGER_BG = Color.parseColor("#2A161B")
-    val COLOR_DANGER_TEXT = Color.parseColor("#FF5252")
-
-    val COLOR_RIPPLE = Color.parseColor("#33FFFFFF")
-
-    // In-memory avatar bitmap cache to avoid redownloading channel pictures
+    private const val TAG = "SettingsTheme"
     val avatarCache = mutableMapOf<String, Bitmap>()
 
     fun dp(context: Context, value: Int): Int {
         return (value * context.resources.displayMetrics.density).toInt()
     }
 
-    fun createRoundedDrawable(
-        bgColor: Int,
-        cornerRadiusDp: Float,
-        strokeColor: Int = 0,
-        strokeWidthDp: Float = 0f,
-        context: Context? = null
-    ): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(bgColor)
-            cornerRadius = if (context != null) dp(context, cornerRadiusDp.toInt()).toFloat() else cornerRadiusDp
-            if (strokeWidthDp > 0f && strokeColor != 0) {
-                val strokeWidthPx = if (context != null) dp(context, strokeWidthDp.toInt()) else strokeWidthDp.toInt()
-                setStroke(strokeWidthPx, strokeColor)
+    fun getAttrColor(context: Context, attrId: Int, fallback: Int): Int {
+        val tv = TypedValue()
+        return if (context.theme.resolveAttribute(attrId, tv, true)) {
+            if (tv.resourceId != 0) {
+                try {
+                    ContextCompat.getColor(context, tv.resourceId)
+                } catch (_: Throwable) {
+                    tv.data
+                }
+            } else {
+                tv.data
             }
+        } else {
+            fallback
         }
     }
 
-    fun createRippleDrawable(
-        context: Context,
-        normalColor: Int,
-        rippleColor: Int,
-        cornerRadiusDp: Float,
-        strokeColor: Int = 0,
-        strokeWidthDp: Float = 0f
-    ): Drawable {
-        val content = createRoundedDrawable(normalColor, cornerRadiusDp, strokeColor, strokeWidthDp, context)
-        val mask = createRoundedDrawable(Color.WHITE, cornerRadiusDp, 0, 0f, context)
-        return RippleDrawable(ColorStateList.valueOf(rippleColor), content, mask)
+    fun getThemeNamedColor(context: Context, attrName: String, fallback: Int): Int {
+        val id = context.resources.getIdentifier(attrName, "attr", context.packageName)
+        return if (id != 0) getAttrColor(context, id, fallback) else fallback
     }
 
-    fun createSwitchThumbTint(): ColorStateList {
+    fun getTextPrimaryColor(context: Context): Int {
+        val themeColor = getThemeNamedColor(context, "textColor", 0)
+        if (themeColor != 0) return themeColor
+        return getAttrColor(context, android.R.attr.textColorPrimary, Color.WHITE)
+    }
+
+    fun getTextSecondaryColor(context: Context): Int {
+        val themeColor = getThemeNamedColor(context, "grayTextColor", 0)
+        if (themeColor != 0) return themeColor
+        return getAttrColor(context, android.R.attr.textColorSecondary, Color.LTGRAY)
+    }
+
+    fun getPrimaryColor(context: Context): Int {
+        val themeColor = getThemeNamedColor(context, "colorPrimary", 0)
+        if (themeColor != 0) return themeColor
+        return getAttrColor(context, androidx.appcompat.R.attr.colorPrimary, Color.parseColor("#3D50FA"))
+    }
+
+    fun getBackgroundColor(context: Context): Int {
+        val themeColor = getThemeNamedColor(context, "primaryBlackBackground", 0)
+        if (themeColor != 0) return themeColor
+        return getAttrColor(context, android.R.attr.colorBackground, Color.parseColor("#121212"))
+    }
+
+    fun getDividerColor(context: Context): Int {
+        val themeColor = getThemeNamedColor(context, "primaryGrayBackground", 0)
+        if (themeColor != 0) return (themeColor and 0x00FFFFFF) or 0x33000000
+        val secondary = getTextSecondaryColor(context)
+        return (secondary and 0x00FFFFFF) or 0x26000000 // 15% opacity of secondary text
+    }
+
+    fun getSelectableItemBackground(context: Context): Drawable? {
+        val tv = TypedValue()
+        if (context.theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)) {
+            return ContextCompat.getDrawable(context, tv.resourceId)
+        }
+        return null
+    }
+
+    fun createSwitchThumbTint(context: Context): ColorStateList {
+        val primary = getPrimaryColor(context)
+        val muted = getTextSecondaryColor(context)
         return ColorStateList(
             arrayOf(
                 intArrayOf(android.R.attr.state_checked),
                 intArrayOf(-android.R.attr.state_checked)
             ),
-            intArrayOf(COLOR_PRIMARY, Color.parseColor("#7A7E92"))
+            intArrayOf(primary, muted)
         )
     }
 
-    fun createSwitchTrackTint(): ColorStateList {
+    fun createSwitchTrackTint(context: Context): ColorStateList {
+        val primary = getPrimaryColor(context)
+        val primaryTransparent = (primary and 0x00FFFFFF) or 0x55000000
+        val muted = getTextSecondaryColor(context)
+        val mutedTransparent = (muted and 0x00FFFFFF) or 0x33000000
         return ColorStateList(
             arrayOf(
                 intArrayOf(android.R.attr.state_checked),
                 intArrayOf(-android.R.attr.state_checked)
             ),
-            intArrayOf(Color.parseColor("#252E63"), Color.parseColor("#252735"))
+            intArrayOf(primaryTransparent, mutedTransparent)
         )
-    }
-
-    fun createInitialsGradient(name: String): GradientDrawable {
-        val hash = kotlin.math.abs(name.hashCode())
-        val gradients = arrayOf(
-            intArrayOf(Color.parseColor("#3D50FA"), Color.parseColor("#6979FF")),
-            intArrayOf(Color.parseColor("#E50914"), Color.parseColor("#FF5252")),
-            intArrayOf(Color.parseColor("#00897B"), Color.parseColor("#26A69A")),
-            intArrayOf(Color.parseColor("#7B1FA2"), Color.parseColor("#AB47BC")),
-            intArrayOf(Color.parseColor("#C2185B"), Color.parseColor("#EC407A")),
-            intArrayOf(Color.parseColor("#F57C00"), Color.parseColor("#FFA726")),
-            intArrayOf(Color.parseColor("#0288D1"), Color.parseColor("#29B6F6"))
-        )
-        val colors = gradients[hash % gradients.size]
-        return GradientDrawable(GradientDrawable.Orientation.TL_BR, colors).apply {
-            shape = GradientDrawable.OVAL
-        }
     }
 
     fun getCircularBitmap(bitmap: Bitmap): Bitmap {
@@ -140,7 +138,7 @@ object SettingsTheme {
                             }
                         }
                     } catch (e: Throwable) {
-                        Log.w("SettingsTheme", "Failed to resolve avatar for $channelUrl: ${e.message}")
+                        Log.w(TAG, "Failed to resolve avatar for $channelUrl: ${e.message}")
                     }
                 }
             }
@@ -169,7 +167,7 @@ object SettingsTheme {
                     }
                 }
             } catch (e: Throwable) {
-                Log.w("SettingsTheme", "Failed to fetch avatar from $url: ${e.message}")
+                Log.w(TAG, "Failed to fetch avatar from $url: ${e.message}")
             }
         }
     }
