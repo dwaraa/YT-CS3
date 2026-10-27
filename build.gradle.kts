@@ -81,7 +81,7 @@ subprojects {
         implementation(kotlin("stdlib"))
         implementation("com.github.Blatzar:NiceHttp:0.4.11")
         implementation("org.jsoup:jsoup:1.23.2")
-        implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.2")
+        implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.22.4")
         implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
