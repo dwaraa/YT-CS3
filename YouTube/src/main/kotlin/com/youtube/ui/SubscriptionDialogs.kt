@@ -57,7 +57,6 @@ object SubscriptionDialogs {
                 textSize = 11.5f
                 gravity = Gravity.CENTER_HORIZONTAL
             }
-            emptyBox.addView(emptyIcon)
             emptyBox.addView(emptyTitle)
             emptyBox.addView(emptyDesc)
             container.addView(emptyBox)
