@@ -372,7 +372,8 @@ object YoutubePreferences {
             }
             val missing = defaultRowOrder.filterNot { parsed.contains(it) }
             parsed + missing
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse saved row order: ${e.message}")
             defaultRowOrder
         }
     }
@@ -424,7 +425,8 @@ object YoutubePreferences {
         val raw = prefs?.getString(KEY_SEARCH_HISTORY, null) ?: return emptyList()
         return try {
             fromJson<List<String>>(raw)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse search history: ${e.message}")
             emptyList()
         }
     }
@@ -455,25 +457,51 @@ object YoutubePreferences {
             clean.substringAfterLast("/")
         }
 
-        if (watchedSet.contains(clean) || watchedSet.contains(videoId)) {
+        if (watchedSet.contains(clean) || (videoId.isNotBlank() && watchedSet.contains(videoId))) {
             return true
         }
 
         // Check CloudStream's native resume status via reflection (if running in app)
         try {
             val helperClass = Class.forName("com.lagradost.cloudstream3.utils.DataStoreHelper")
-            val getViewResumeMethod = helperClass.getMethod("getViewResume", java.lang.Integer::class.java)
-            val resumeStatus = getViewResumeMethod.invoke(null, clean.hashCode())
-            if (resumeStatus != null) {
-                val progressField = resumeStatus.javaClass.getDeclaredField("progress").apply { isAccessible = true }
-                val durationField = resumeStatus.javaClass.getDeclaredField("duration").apply { isAccessible = true }
-                val progress = (progressField.get(resumeStatus) as? Number)?.toLong() ?: 0L
-                val duration = (durationField.get(resumeStatus) as? Number)?.toLong() ?: 0L
-                if (duration > 0 && (progress.toFloat() / duration.toFloat()) >= 0.9f) {
-                    return true
+            val id = clean.hashCode()
+
+            // 1. CloudStream 4.x+ getViewPos(Integer) -> PosDur (position, duration)
+            try {
+                val getViewPosMethod = helperClass.getMethod("getViewPos", java.lang.Integer::class.java)
+                val posDur = getViewPosMethod.invoke(null, id)
+                if (posDur != null) {
+                    val posField = posDur.javaClass.getDeclaredField("position").apply { isAccessible = true }
+                    val durField = posDur.javaClass.getDeclaredField("duration").apply { isAccessible = true }
+                    val pos = (posField.get(posDur) as? Number)?.toLong() ?: 0L
+                    val dur = (durField.get(posDur) as? Number)?.toLong() ?: 0L
+                    if (dur > 0 && (pos.toFloat() / dur.toFloat()) >= 0.85f) {
+                        return true
+                    }
                 }
+            } catch (posErr: Throwable) {
+                Log.d(TAG, "DataStoreHelper.getViewPos reflection skipped: ${posErr.message}")
             }
-        } catch (_: Throwable) {}
+
+            // 2. Legacy getViewResume(Integer) -> ResumeStatus (progress, duration)
+            try {
+                val getViewResumeMethod = helperClass.getMethod("getViewResume", java.lang.Integer::class.java)
+                val resumeStatus = getViewResumeMethod.invoke(null, id)
+                if (resumeStatus != null) {
+                    val progressField = resumeStatus.javaClass.getDeclaredField("progress").apply { isAccessible = true }
+                    val durationField = resumeStatus.javaClass.getDeclaredField("duration").apply { isAccessible = true }
+                    val progress = (progressField.get(resumeStatus) as? Number)?.toLong() ?: 0L
+                    val duration = (durationField.get(resumeStatus) as? Number)?.toLong() ?: 0L
+                    if (duration > 0 && (progress.toFloat() / duration.toFloat()) >= 0.85f) {
+                        return true
+                    }
+                }
+            } catch (resumeErr: Throwable) {
+                Log.d(TAG, "DataStoreHelper.getViewResume reflection skipped: ${resumeErr.message}")
+            }
+        } catch (t: Throwable) {
+            Log.d(TAG, "DataStoreHelper reflection unavailable: ${t.message}")
+        }
 
         return false
     }

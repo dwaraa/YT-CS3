@@ -106,4 +106,23 @@ class YoutubeSubscriptionImporterTest {
         assertEquals(1, reimported.totalFound)
         assertEquals("Marques Brownlee, Tech", reimported.importedChannels[0].name)
     }
+
+    @Test
+    fun testExportAndReimportOpml() {
+        val channels = listOf(
+            SubscribedChannel("@mkbhd", "Marques Brownlee", "https://www.youtube.com/channel/UCBJycsmduvYEL83R_U4JriQ", ""),
+            SubscribedChannel("@veritasium", "Veritasium", "https://www.youtube.com/channel/UCHnyfMqiRRG1u-2MsSQLbXA", "")
+        )
+
+        val exportedOpml = YoutubeSubscriptionImporter.exportToOpml(channels)
+        assertTrue(exportedOpml.contains("<opml version=\"1.1\">"))
+        assertTrue(exportedOpml.contains("title=\"Marques Brownlee\""))
+        assertTrue(exportedOpml.contains("title=\"Veritasium\""))
+
+        val reimported = YoutubeSubscriptionImporter.detectAndImport(exportedOpml)
+        assertEquals("OPML XML", reimported.format)
+        assertEquals(2, reimported.totalFound)
+        assertEquals("Marques Brownlee", reimported.importedChannels[0].name)
+        assertEquals("https://www.youtube.com/channel/UCBJycsmduvYEL83R_U4JriQ", reimported.importedChannels[0].url)
+    }
 }

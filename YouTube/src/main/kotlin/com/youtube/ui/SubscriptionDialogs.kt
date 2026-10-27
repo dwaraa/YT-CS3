@@ -247,13 +247,14 @@ object SubscriptionDialogs {
             return
         }
 
-        val options = arrayOf("NewPipe JSON (Full Backup)", "Google Takeout CSV")
+        val options = arrayOf("NewPipe JSON (Full Backup)", "Google Takeout CSV", "OPML XML (RSS / Feeds)")
         AlertDialog.Builder(context)
             .setTitle("Export Subscriptions (${channels.size} channels)")
             .setItems(options) { _, which ->
                 val exportedText = when (which) {
                     0 -> YoutubeSubscriptionImporter.exportToNewPipeJson(channels)
-                    else -> YoutubeSubscriptionImporter.exportToTakeoutCsv(channels)
+                    1 -> YoutubeSubscriptionImporter.exportToTakeoutCsv(channels)
+                    else -> YoutubeSubscriptionImporter.exportToOpml(channels)
                 }
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                 val clip = ClipData.newPlainText("YouTube Subscriptions", exportedText)
@@ -262,5 +263,124 @@ object SubscriptionDialogs {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    fun showReorderChannelsDialog(context: Context, onDone: () -> Unit) {
+        val channels = YoutubePreferences.getSubscribedChannels().toMutableList()
+        if (channels.isEmpty()) {
+            Toast.makeText(context, "No channels to reorder", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val scroll = ScrollView(context)
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 16))
+        }
+        scroll.addView(container)
+
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("Reorder Subscribed Channels")
+            .setView(scroll)
+            .setPositiveButton("Done") { _, _ -> onDone() }
+            .create()
+
+        fun rebuildList() {
+            container.removeAllViews()
+            val textPrimary = SettingsTheme.getTextPrimaryColor(context)
+            val textSecondary = SettingsTheme.getTextSecondaryColor(context)
+            val primaryColor = SettingsTheme.getPrimaryColor(context)
+
+            val hint = TextView(context).apply {
+                text = "Use ▲ and ▼ to order your channels for home posters and feeds."
+                setTextColor(textSecondary)
+                textSize = 12f
+                setPadding(0, 0, 0, dp(context, 12))
+            }
+            container.addView(hint)
+
+            for (i in channels.indices) {
+                val channel = channels[i]
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(context, 8), 0, dp(context, 8))
+                }
+
+                val indexBadge = TextView(context).apply {
+                    text = "#${i + 1}"
+                    setTextColor(primaryColor)
+                    textSize = 13f
+                    setTypeface(null, Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams(dp(context, 32), ViewGroup.LayoutParams.WRAP_CONTENT)
+                }
+                row.addView(indexBadge)
+
+                val nameCol = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginEnd = dp(context, 8)
+                    }
+                }
+                val nameView = TextView(context).apply {
+                    text = channel.name
+                    setTextColor(textPrimary)
+                    textSize = 13.5f
+                    maxLines = 1
+                }
+                val handleView = TextView(context).apply {
+                    text = channel.url.substringAfterLast("/")
+                    setTextColor(textSecondary)
+                    textSize = 11.5f
+                    maxLines = 1
+                }
+                nameCol.addView(nameView)
+                nameCol.addView(handleView)
+                row.addView(nameCol)
+
+                val upBtn = Button(context).apply {
+                    text = "▲"
+                    setTextColor(if (i > 0) primaryColor else textSecondary)
+                    isEnabled = i > 0
+                    textSize = 14f
+                    layoutParams = LinearLayout.LayoutParams(dp(context, 44), dp(context, 38))
+                    setOnClickListener {
+                        if (i > 0) {
+                            val temp = channels[i]
+                            channels[i] = channels[i - 1]
+                            channels[i - 1] = temp
+                            YoutubePreferences.saveSubscribedChannels(channels)
+                            rebuildList()
+                        }
+                    }
+                }
+                val downBtn = Button(context).apply {
+                    text = "▼"
+                    setTextColor(if (i < channels.size - 1) primaryColor else textSecondary)
+                    isEnabled = i < channels.size - 1
+                    textSize = 14f
+                    layoutParams = LinearLayout.LayoutParams(dp(context, 44), dp(context, 38)).apply {
+                        marginStart = dp(context, 4)
+                    }
+                    setOnClickListener {
+                        if (i < channels.size - 1) {
+                            val temp = channels[i]
+                            channels[i] = channels[i + 1]
+                            channels[i + 1] = temp
+                            YoutubePreferences.saveSubscribedChannels(channels)
+                            rebuildList()
+                        }
+                    }
+                }
+
+                row.addView(upBtn)
+                row.addView(downBtn)
+                container.addView(row)
+                container.addView(SettingsComponents.createDivider(context))
+            }
+        }
+
+        rebuildList()
+        dialog.show()
     }
 }

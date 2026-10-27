@@ -200,6 +200,20 @@ object YoutubeSettings {
                 }
             }
         }
+        val reorderBtn = Button(context).apply {
+            text = "Reorder"
+            setTextColor(SettingsTheme.getPrimaryColor(context))
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = SettingsTheme.dp(context, 6)
+            }
+            setOnClickListener {
+                SubscriptionDialogs.showReorderChannelsDialog(context) {
+                    SubscriptionDialogs.refreshChannelList(context, channelListContainer, updateCountUi)
+                    updateCountUi()
+                }
+            }
+        }
         val exportBtn = Button(context).apply {
             text = "Export"
             setTextColor(SettingsTheme.getPrimaryColor(context))
@@ -212,6 +226,7 @@ object YoutubeSettings {
             }
         }
         importExportBox.addView(importBtn)
+        importExportBox.addView(reorderBtn)
         importExportBox.addView(exportBtn)
         content.addView(importExportBox)
 

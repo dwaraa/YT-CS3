@@ -152,6 +152,7 @@ class YoutubeProvider : MainAPI() {
         ensureDownloaderInitialized()
         val watchUrl = YoutubeLoaders.sanitizeToWatchUrl(data)
         var linkFound = false
+        YoutubePreferences.markWatched(watchUrl, true)
 
         val cookieStr = YoutubeDownloader.getCookieHeader()
         val defaultHeaders = mutableMapOf(

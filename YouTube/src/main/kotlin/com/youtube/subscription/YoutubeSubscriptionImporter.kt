@@ -241,6 +241,28 @@ object YoutubeSubscriptionImporter {
         return sb.toString()
     }
 
+    fun exportToOpml(channels: List<SubscribedChannel>): String {
+        val sb = StringBuilder()
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+        sb.append("<opml version=\"1.1\">\n")
+        sb.append("  <head>\n")
+        sb.append("    <title>YouTube Subscriptions</title>\n")
+        sb.append("  </head>\n")
+        sb.append("  <body>\n")
+        sb.append("    <outline text=\"YouTube Subscriptions\" title=\"YouTube Subscriptions\">\n")
+        for (channel in channels) {
+            val title = channel.name.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+            val url = channel.url.replace("&", "&amp;").replace("\"", "&quot;")
+            val channelId = deriveIdFromUrl(channel.url)
+            val xmlUrl = "https://www.youtube.com/feeds/videos.xml?channel_id=$channelId"
+            sb.append("      <outline text=\"$title\" title=\"$title\" type=\"rss\" xmlUrl=\"$xmlUrl\" htmlUrl=\"$url\" />\n")
+        }
+        sb.append("    </outline>\n")
+        sb.append("  </body>\n")
+        sb.append("</opml>\n")
+        return sb.toString()
+    }
+
     private fun parseCsvLine(line: String): List<String> {
         val tokens = mutableListOf<String>()
         val sb = StringBuilder()

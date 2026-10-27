@@ -1,9 +1,16 @@
 package com.youtube.ui
 
 import android.content.Context
+import android.graphics.Typeface
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import com.youtube.HomeRowType
 import com.youtube.SearchContentFilter
 import com.youtube.ShortsMode
@@ -19,7 +26,19 @@ object SettingsContentSection {
 
         views.add(SettingsComponents.createSectionHeader(context, "Feed & Content Customization"))
 
-        // 1. Subscribed Channels Row (Vertical Posters)
+        // 1. Reorder Home Feed Sections
+        val reorderRow = SettingsComponents.createSettingRow(
+            context = context,
+            title = "Reorder Home Feed Sections",
+            description = "Customize the order of categories on your home screen",
+            valueText = "Reorder ›"
+        ) {
+            showReorderHomeRowsDialog(context)
+        }
+        views.add(reorderRow)
+        views.add(SettingsComponents.createDivider(context))
+
+        // 2. Subscribed Channels Row (Vertical Posters)
         val channelsRowToggle = SettingsComponents.createSwitchRow(
             context = context,
             title = "Subscribed Channels Row",
@@ -197,5 +216,111 @@ object SettingsContentSection {
         views.add(SettingsComponents.createDivider(context))
 
         return views
+    }
+
+    fun showReorderHomeRowsDialog(context: Context) {
+        val rows = YoutubePreferences.getRowOrder().toMutableList()
+        val scroll = ScrollView(context)
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(SettingsTheme.dp(context, 16), SettingsTheme.dp(context, 8), SettingsTheme.dp(context, 16), SettingsTheme.dp(context, 16))
+        }
+        scroll.addView(container)
+
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("Reorder Home Feed Sections")
+            .setView(scroll)
+            .setPositiveButton("Done", null)
+            .setNeutralButton("Reset to Defaults") { _, _ ->
+                YoutubePreferences.saveRowOrder(YoutubePreferences.defaultRowOrder)
+                Toast.makeText(context, "Reset feed rows to default order", Toast.LENGTH_SHORT).show()
+            }
+            .create()
+
+        fun rebuildList() {
+            container.removeAllViews()
+            val textPrimary = SettingsTheme.getTextPrimaryColor(context)
+            val textSecondary = SettingsTheme.getTextSecondaryColor(context)
+            val primaryColor = SettingsTheme.getPrimaryColor(context)
+
+            val hint = TextView(context).apply {
+                text = "Use ▲ and ▼ to order sections on your home screen."
+                setTextColor(textSecondary)
+                textSize = 12f
+                setPadding(0, 0, 0, SettingsTheme.dp(context, 12))
+            }
+            container.addView(hint)
+
+            for (i in rows.indices) {
+                val rowType = rows[i]
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, SettingsTheme.dp(context, 8), 0, SettingsTheme.dp(context, 8))
+                }
+
+                val indexBadge = TextView(context).apply {
+                    text = "#${i + 1}"
+                    setTextColor(primaryColor)
+                    textSize = 13f
+                    setTypeface(null, Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams(SettingsTheme.dp(context, 32), ViewGroup.LayoutParams.WRAP_CONTENT)
+                }
+                row.addView(indexBadge)
+
+                val nameView = TextView(context).apply {
+                    text = rowType.displayName
+                    setTextColor(textPrimary)
+                    textSize = 13.5f
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginEnd = SettingsTheme.dp(context, 8)
+                    }
+                }
+                row.addView(nameView)
+
+                val upBtn = Button(context).apply {
+                    text = "▲"
+                    setTextColor(if (i > 0) primaryColor else textSecondary)
+                    isEnabled = i > 0
+                    textSize = 14f
+                    layoutParams = LinearLayout.LayoutParams(SettingsTheme.dp(context, 44), SettingsTheme.dp(context, 38))
+                    setOnClickListener {
+                        if (i > 0) {
+                            val temp = rows[i]
+                            rows[i] = rows[i - 1]
+                            rows[i - 1] = temp
+                            YoutubePreferences.saveRowOrder(rows)
+                            rebuildList()
+                        }
+                    }
+                }
+                val downBtn = Button(context).apply {
+                    text = "▼"
+                    setTextColor(if (i < rows.size - 1) primaryColor else textSecondary)
+                    isEnabled = i < rows.size - 1
+                    textSize = 14f
+                    layoutParams = LinearLayout.LayoutParams(SettingsTheme.dp(context, 44), SettingsTheme.dp(context, 38)).apply {
+                        marginStart = SettingsTheme.dp(context, 4)
+                    }
+                    setOnClickListener {
+                        if (i < rows.size - 1) {
+                            val temp = rows[i]
+                            rows[i] = rows[i + 1]
+                            rows[i + 1] = temp
+                            YoutubePreferences.saveRowOrder(rows)
+                            rebuildList()
+                        }
+                    }
+                }
+
+                row.addView(upBtn)
+                row.addView(downBtn)
+                container.addView(row)
+                container.addView(SettingsComponents.createDivider(context))
+            }
+        }
+
+        rebuildList()
+        dialog.show()
     }
 }

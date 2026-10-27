@@ -1,5 +1,6 @@
 package com.youtube.extractor
 
+import android.util.Log
 import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.SearchResponse
@@ -15,6 +16,7 @@ import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
 object YoutubeEpisodeMapper {
+    private const val TAG = "YoutubeEpisodeMapper"
 
     private val RELATIVE_TIME_PATTERN = Pattern.compile(
         """(\d+)\s*(second|minute|hour|day|week|month|year)s?\s*ago""",
@@ -25,7 +27,9 @@ object YoutubeEpisodeMapper {
         if (item.url?.contains("/shorts/") == true) return true
         try {
             if (item.isShortFormContent) return true
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            Log.d(TAG, "isShortFormContent check skipped: ${t.message}")
+        }
         if (item.duration in 1..61 && item.name?.contains("#shorts", ignoreCase = true) == true) {
             return true
         }
@@ -138,7 +142,9 @@ object YoutubeEpisodeMapper {
                     return offset.toInstant().toEpochMilli()
                 }
             }
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            Log.d(TAG, "extractUploadEpochMs offset parsing failed: ${t.message}")
+        }
 
         val textDate = item.textualUploadDate
         if (!textDate.isNullOrBlank()) {
