@@ -55,16 +55,18 @@ object YoutubeEpisodeMapper {
                 }
                 is StreamInfoItem -> {
                     val isLive = item.streamType?.name?.contains("LIVE") == true
+                    val canonicalUrl = com.youtube.loader.YoutubeLoaders.sanitizeToWatchUrl(itemUrl)
                     newMovieSearchResponse(
                         itemName,
-                        itemUrl,
+                        canonicalUrl,
                         if (isLive) TvType.Live else TvType.Others
                     ) {
                         this.posterUrl = thumb
                     }
                 }
                 else -> {
-                    newMovieSearchResponse(itemName, itemUrl, TvType.Others) {
+                    val canonicalUrl = com.youtube.loader.YoutubeLoaders.sanitizeToWatchUrl(itemUrl)
+                    newMovieSearchResponse(itemName, canonicalUrl, TvType.Others) {
                         this.posterUrl = thumb
                     }
                 }
@@ -74,14 +76,15 @@ object YoutubeEpisodeMapper {
 
     fun toEpisode(api: MainAPI, item: InfoItem, episodeNum: Int? = null, seasonNum: Int? = null): Episode {
         val itemUrl = item.url ?: ""
+        val canonicalUrl = com.youtube.loader.YoutubeLoaders.sanitizeToWatchUrl(itemUrl)
         val itemName = item.name ?: "Unknown Video"
         val thumb = item.thumbnails.lastOrNull()?.url
 
         return with(api) {
-            newEpisode(itemUrl) {
+            newEpisode(canonicalUrl) {
                 this.name = itemName
                 this.posterUrl = thumb
-                this.data = itemUrl
+                this.data = canonicalUrl
                 if (episodeNum != null) {
                     this.episode = episodeNum
                 }

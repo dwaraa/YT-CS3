@@ -22,6 +22,10 @@ class YoutubeUrlUtilsTest {
         assertEquals(expected, YoutubeLoaders.sanitizeToWatchUrl("https://www.youtube.com/shorts/dQw4w9WgXcQ"))
         assertEquals(expected, YoutubeLoaders.sanitizeToWatchUrl("https://www.youtube.com/embed/dQw4w9WgXcQ"))
         assertEquals(expected, YoutubeLoaders.sanitizeToWatchUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+        assertEquals(expected, YoutubeLoaders.sanitizeToWatchUrl("dQw4w9WgXcQ"))
+        assertEquals(expected, YoutubeLoaders.sanitizeToWatchUrl("/watch?v=dQw4w9WgXcQ"))
+        assertEquals(expected, YoutubeLoaders.sanitizeToWatchUrl("watch?v=dQw4w9WgXcQ"))
+        assertEquals(expected, YoutubeLoaders.sanitizeToWatchUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s"))
     }
 
     @Test

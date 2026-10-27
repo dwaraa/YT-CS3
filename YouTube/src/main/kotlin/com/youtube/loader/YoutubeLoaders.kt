@@ -33,23 +33,25 @@ object YoutubeLoaders {
         }
     }
 
-    fun sanitizeToWatchUrl(url: String): String {
-        val clean = sanitizeUrl(url)
-        return when {
-            clean.contains("youtu.be/") -> {
-                val videoId = clean.substringAfter("youtu.be/").substringBefore("?").substringBefore("&")
-                "https://www.youtube.com/watch?v=$videoId"
-            }
-            clean.contains("/shorts/") -> {
-                val videoId = clean.substringAfter("/shorts/").substringBefore("?").substringBefore("&")
-                "https://www.youtube.com/watch?v=$videoId"
-            }
-            clean.contains("/embed/") -> {
-                val videoId = clean.substringAfter("/embed/").substringBefore("?").substringBefore("&")
-                "https://www.youtube.com/watch?v=$videoId"
-            }
-            else -> clean
+    fun extractVideoId(url: String): String? {
+        val patterns = listOf(
+            """(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})""",
+            """[?&]v=([a-zA-Z0-9_-]{11})""",
+            """^([a-zA-Z0-9_-]{11})$"""
+        )
+
+        return patterns.firstNotNullOfOrNull { pattern ->
+            pattern.toRegex().find(url.trim())?.groupValues?.get(1)
         }
+    }
+
+    fun sanitizeToWatchUrl(url: String): String {
+        val trimmed = url.trim()
+        val videoId = extractVideoId(trimmed)
+        if (videoId != null) {
+            return "https://www.youtube.com/watch?v=$videoId"
+        }
+        return sanitizeUrl(trimmed)
     }
 
     suspend fun loadVideo(api: MainAPI, url: String): LoadResponse {
@@ -128,9 +130,9 @@ object YoutubeLoaders {
         return with(api) {
             newMovieLoadResponse(
                 videoTitle,
-                url,
+                watchUrl,
                 if (isLiveStream) TvType.Live else TvType.Others,
-                url
+                watchUrl
             ) {
                 this.plot = enrichedPlot
                 this.posterUrl = poster

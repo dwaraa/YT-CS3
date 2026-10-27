@@ -2,11 +2,11 @@ package com.youtube.extractor
 
 import android.util.Log
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.newSubtitleFile
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import com.youtube.AudioHelper
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.AudioTrackType
 import org.schabi.newpipe.extractor.stream.StreamInfo
@@ -165,20 +165,23 @@ object YoutubeLinkResolver {
         val generatedLinks = mutableListOf<ExtractorLink>()
 
         // A. Live Streams: HLS Master Playlist
-        val isLiveStream = info.streamType == StreamType.LIVE_STREAM || info.streamType == StreamType.AUDIO_LIVE_STREAM
-
-        if (isLiveStream && !info.hlsUrl.isNullOrBlank()) {
-            generatedLinks.add(
-                newExtractorLink(
-                    source = providerName,
-                    name = "$providerName Live (Adaptive HLS)",
-                    url = info.hlsUrl,
-                    type = ExtractorLinkType.M3U8
-                ) {
-                    this.headers = defaultHeaders
-                    this.quality = Qualities.Unknown.value
-                }
-            )
+        try {
+            val isLiveStream = info.streamType == StreamType.LIVE_STREAM || info.streamType == StreamType.AUDIO_LIVE_STREAM
+            if (isLiveStream && !info.hlsUrl.isNullOrBlank()) {
+                generatedLinks.add(
+                    newExtractorLink(
+                        source = providerName,
+                        name = "$providerName Live (Adaptive HLS)",
+                        url = info.hlsUrl,
+                        type = ExtractorLinkType.M3U8
+                    ) {
+                        this.headers = defaultHeaders
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to resolve live HLS stream: ${t.message}")
         }
 
         // B. Process Audio Streams
@@ -188,108 +191,122 @@ object YoutubeLinkResolver {
         val distinctAudioTracks = parsedAudioTracks.distinctBy { Pair(it.languageName, it.trackTypeTag) }
 
         // C. Adaptive Playback: Pair Video-Only Streams (4K, 1440p, 1080p, 720p, etc.) with Audio
-        val rawVideoOnlyStreams = info.videoOnlyStreams.orEmpty().filter { !it.content.isNullOrBlank() }
+        try {
+            val rawVideoOnlyStreams = info.videoOnlyStreams.orEmpty().filter { !it.content.isNullOrBlank() }
+            for (stream in rawVideoOnlyStreams) {
+                val height = extractPixelHeight(stream.quality, stream.height)
+                if (height <= 0) continue
 
-        for (stream in rawVideoOnlyStreams) {
-            val height = extractPixelHeight(stream.quality, stream.height)
-            if (height <= 0) continue
+                val resLabel = formatResolutionLabel(height)
+                val fpsTag = if (stream.fps > 30) " ${stream.fps}fps" else ""
+                val formatTag = (stream.format?.name ?: stream.codec ?: "MP4").uppercase()
+                val qualityNum = heightToQuality(height)
 
-            val resLabel = formatResolutionLabel(height)
-            val fpsTag = if (stream.fps > 30) " ${stream.fps}fps" else ""
-            val formatTag = (stream.format?.name ?: stream.codec ?: "MP4").uppercase()
-            val qualityNum = heightToQuality(height)
+                val isPreferred = (targetHeight != null && height == targetHeight)
+                val prefBadge = if (isPreferred) " ⭐" else ""
 
-            val isPreferred = (targetHeight != null && height == targetHeight)
-            val prefBadge = if (isPreferred) " ⭐" else ""
+                val primaryLinkName = "$providerName $resLabel$fpsTag ($formatTag)$prefBadge"
+                val link = newExtractorLink(
+                    source = providerName,
+                    name = primaryLinkName,
+                    url = stream.content,
+                    type = ExtractorLinkType.VIDEO
+                ) {
+                    this.headers = defaultHeaders
+                    this.quality = qualityNum
+                }
 
-            val audioFile = primaryAudio?.let { AudioHelper.createAudioFile(it.stream.content, defaultHeaders) }
-            val audioTracksList = if (audioFile != null) listOf(audioFile) else emptyList()
+                // Safely attach audioTracks if supported by the host CloudStream runtime
+                primaryAudio?.let { audioTrack ->
+                    AudioTrackHelper.attachAudioTrack(link, audioTrack.stream.content, defaultHeaders)
+                }
+                generatedLinks.add(link)
 
-            val primaryLinkName = "$providerName $resLabel$fpsTag ($formatTag)$prefBadge"
-            val link = newExtractorLink(
-                source = providerName,
-                name = primaryLinkName,
-                url = stream.content,
-                type = ExtractorLinkType.VIDEO
-            ) {
-                this.headers = defaultHeaders
-                this.quality = qualityNum
-                this.audioTracks = audioTracksList
-            }
-            generatedLinks.add(link)
-
-            // Additional links for multi-language dubbed tracks
-            if (height >= 1080 && distinctAudioTracks.size > 1) {
-                for (dubbedTrack in distinctAudioTracks.filter { it != primaryAudio && it.isDubbed }) {
-                    val dubbedAudioFile = AudioHelper.createAudioFile(dubbedTrack.stream.content, defaultHeaders)
-                    val dubbedLink = newExtractorLink(
-                        source = providerName,
-                        name = "$providerName $resLabel$fpsTag [$formatTag] [Dub: ${dubbedTrack.languageName}]",
-                        url = stream.content,
-                        type = ExtractorLinkType.VIDEO
-                    ) {
-                        this.headers = defaultHeaders
-                        this.quality = qualityNum
-                        this.audioTracks = listOf(dubbedAudioFile)
+                // Additional links for multi-language dubbed tracks
+                if (height >= 1080 && distinctAudioTracks.size > 1) {
+                    for (dubbedTrack in distinctAudioTracks.filter { it != primaryAudio && it.isDubbed }) {
+                        val dubbedLink = newExtractorLink(
+                            source = providerName,
+                            name = "$providerName $resLabel$fpsTag [$formatTag] [Dub: ${dubbedTrack.languageName}]",
+                            url = stream.content,
+                            type = ExtractorLinkType.VIDEO
+                        ) {
+                            this.headers = defaultHeaders
+                            this.quality = qualityNum
+                        }
+                        AudioTrackHelper.attachAudioTrack(dubbedLink, dubbedTrack.stream.content, defaultHeaders)
+                        generatedLinks.add(dubbedLink)
                     }
-                    generatedLinks.add(dubbedLink)
                 }
             }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Video-only stream pairing skipped or failed: ${t.message}")
         }
 
-        // D. Progressive Streams (pre-muxed audio + video)
-        val rawVideoStreams = info.videoStreams.orEmpty().filter { !it.content.isNullOrBlank() }
+        // D. Progressive Streams (pre-muxed audio + video - GUARANTEED to play on all versions)
+        try {
+            val rawVideoStreams = info.videoStreams.orEmpty().filter { !it.content.isNullOrBlank() }
+            for (stream in rawVideoStreams) {
+                val height = extractPixelHeight(stream.quality, stream.height)
+                val resLabel = formatResolutionLabel(height)
+                val fpsTag = if (stream.fps > 30) " ${stream.fps}fps" else ""
+                val formatTag = (stream.format?.name ?: "MP4").uppercase()
+                val qualityNum = heightToQuality(height)
 
-        for (stream in rawVideoStreams) {
-            val height = extractPixelHeight(stream.quality, stream.height)
-            val resLabel = formatResolutionLabel(height)
-            val fpsTag = if (stream.fps > 30) " ${stream.fps}fps" else ""
-            val formatTag = (stream.format?.name ?: "MP4").uppercase()
-            val qualityNum = heightToQuality(height)
+                val isPreferred = (targetHeight != null && height == targetHeight)
+                val prefBadge = if (isPreferred) " ⭐" else ""
+                val fallbackTag = if (height <= 360) " [Muxed Fallback]" else ""
 
-            val isPreferred = (targetHeight != null && height == targetHeight)
-            val prefBadge = if (isPreferred) " ⭐" else ""
-            val fallbackTag = if (height <= 360) " [Muxed Fallback]" else ""
-
-            val link = newExtractorLink(
-                source = providerName,
-                name = "$providerName $resLabel$fpsTag ($formatTag)$fallbackTag$prefBadge",
-                url = stream.content,
-                type = ExtractorLinkType.VIDEO
-            ) {
-                this.headers = defaultHeaders
-                this.quality = qualityNum
+                val link = newExtractorLink(
+                    source = providerName,
+                    name = "$providerName $resLabel$fpsTag ($formatTag)$fallbackTag$prefBadge",
+                    url = stream.content,
+                    type = ExtractorLinkType.VIDEO
+                ) {
+                    this.headers = defaultHeaders
+                    this.quality = qualityNum
+                }
+                generatedLinks.add(link)
             }
-            generatedLinks.add(link)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Progressive stream generation failed: ${t.message}")
         }
 
         // E. Adaptive DASH Manifest Stream
-        if (!info.dashMpdUrl.isNullOrBlank()) {
-            generatedLinks.add(
-                newExtractorLink(
+        try {
+            if (!info.dashMpdUrl.isNullOrBlank()) {
+                generatedLinks.add(
+                    newExtractorLink(
+                        source = providerName,
+                        name = "$providerName Adaptive (DASH)",
+                        url = info.dashMpdUrl,
+                        type = ExtractorLinkType.DASH
+                    ) {
+                        this.headers = defaultHeaders
+                        this.quality = Qualities.Unknown.value
+                    }
+                )
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "DASH stream generation failed: ${t.message}")
+        }
+
+        // F. Standalone Audio Streams
+        try {
+            for (audioTrack in distinctAudioTracks.take(3)) {
+                val audioLink = newExtractorLink(
                     source = providerName,
-                    name = "$providerName Adaptive (DASH)",
-                    url = info.dashMpdUrl,
-                    type = ExtractorLinkType.DASH
+                    name = "$providerName Audio: ${audioTrack.fullLabel}",
+                    url = audioTrack.stream.content,
+                    type = ExtractorLinkType.VIDEO
                 ) {
                     this.headers = defaultHeaders
                     this.quality = Qualities.Unknown.value
                 }
-            )
-        }
-
-        // F. Standalone Audio Streams
-        for (audioTrack in distinctAudioTracks.take(3)) {
-            val audioLink = newExtractorLink(
-                source = providerName,
-                name = "$providerName Audio: ${audioTrack.fullLabel}",
-                url = audioTrack.stream.content,
-                type = ExtractorLinkType.VIDEO
-            ) {
-                this.headers = defaultHeaders
-                this.quality = Qualities.Unknown.value
+                generatedLinks.add(audioLink)
             }
-            generatedLinks.add(audioLink)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Audio stream generation failed: ${t.message}")
         }
 
         // G. Prioritize & Sort Links
@@ -309,27 +326,31 @@ object YoutubeLinkResolver {
         sortedLinks.forEach { callback(it) }
 
         // H. Subtitles & Closed Captions
-        val preferredSub = preferredSubtitleLang?.takeIf { !it.equals("None", ignoreCase = true) }
-        val sortedSubtitles = info.subtitles.orEmpty().sortedWith(
-            compareByDescending<org.schabi.newpipe.extractor.stream.SubtitlesStream> { sub ->
-                if (preferredSub != null && !preferredSub.equals("Auto", ignoreCase = true)) {
-                    val subLang = sub.displayLanguageName ?: sub.languageTag ?: ""
-                    subLang.contains(preferredSub, ignoreCase = true)
-                } else false
-            }.thenBy { it.isAutoGenerated }
-        )
-
-        sortedSubtitles.forEach { sub ->
-            val langName = sub.displayLanguageName ?: sub.languageTag ?: "Unknown"
-            val autoTag = if (sub.isAutoGenerated) " (Auto-generated)" else ""
-            val fullLangLabel = "$langName$autoTag"
-
-            subtitleCallback(
-                SubtitleFile(
-                    lang = fullLangLabel,
-                    url = sub.content
-                )
+        try {
+            val preferredSub = preferredSubtitleLang?.takeIf { !it.equals("None", ignoreCase = true) }
+            val sortedSubtitles = info.subtitles.orEmpty().sortedWith(
+                compareByDescending<org.schabi.newpipe.extractor.stream.SubtitlesStream> { sub ->
+                    if (preferredSub != null && !preferredSub.equals("Auto", ignoreCase = true)) {
+                        val subLang = sub.displayLanguageName ?: sub.languageTag ?: ""
+                        subLang.contains(preferredSub, ignoreCase = true)
+                    } else false
+                }.thenBy { it.isAutoGenerated }
             )
+
+            sortedSubtitles.forEach { sub ->
+                val langName = sub.displayLanguageName ?: sub.languageTag ?: "Unknown"
+                val autoTag = if (sub.isAutoGenerated) " (Auto-generated)" else ""
+                val fullLangLabel = "$langName$autoTag"
+
+                subtitleCallback(
+                    newSubtitleFile(
+                        lang = fullLangLabel,
+                        url = sub.content
+                    )
+                )
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Subtitle extraction failed: ${t.message}")
         }
     }
 }

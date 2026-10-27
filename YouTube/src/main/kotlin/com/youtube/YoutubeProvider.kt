@@ -151,6 +151,7 @@ class YoutubeProvider : MainAPI() {
     ): Boolean {
         ensureDownloaderInitialized()
         val watchUrl = YoutubeLoaders.sanitizeToWatchUrl(data)
+        var linkFound = false
 
         val defaultHeaders = mapOf(
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -158,7 +159,8 @@ class YoutubeProvider : MainAPI() {
             "Origin" to "https://www.youtube.com"
         )
 
-        return try {
+        // 1. Direct NewPipe stream resolution
+        try {
             val info = StreamInfo.getInfo(ServiceList.YouTube, watchUrl)
 
             YoutubeLinkResolver.resolveLinks(
@@ -168,21 +170,35 @@ class YoutubeProvider : MainAPI() {
                 preferredSubtitleLang = YoutubePreferences.preferredSubtitle,
                 defaultHeaders = defaultHeaders,
                 subtitleCallback = subtitleCallback,
-                callback = callback
+                callback = { link ->
+                    linkFound = true
+                    callback(link)
+                }
             )
-
-            // Also attempt external extractors if any match
-            try {
-                loadExtractor(watchUrl, subtitleCallback, callback)
-            } catch (extractorErr: Throwable) {
-                Log.d(TAG, "Secondary extractor skipped for $watchUrl: ${extractorErr.message}")
-            }
-
-            true
         } catch (e: Throwable) {
             val errorMsg = formatExtractionError(e)
             Log.e(TAG, "Failed to resolve stream links for '$watchUrl': $errorMsg", e)
-            throw ErrorLoadingException(errorMsg)
+
+            if (e is org.schabi.newpipe.extractor.exceptions.ReCaptchaException ||
+                errorMsg.contains("Bot", ignoreCase = true) ||
+                errorMsg.contains("Rate Limited", ignoreCase = true)
+            ) {
+                YoutubeDownloader.refreshConsentCookies(force = true)
+            }
         }
+
+        // 2. Secondary fallback: Cloudstream built-in extractor
+        if (!linkFound) {
+            try {
+                loadExtractor(watchUrl, subtitleCallback) { link ->
+                    linkFound = true
+                    callback(link)
+                }
+            } catch (extractorErr: Throwable) {
+                Log.d(TAG, "Secondary extractor skipped for $watchUrl: ${extractorErr.message}")
+            }
+        }
+
+        return linkFound
     }
 }
