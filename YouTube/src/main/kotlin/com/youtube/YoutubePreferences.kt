@@ -126,19 +126,19 @@ object YoutubePreferences {
                     id = "@mkbhd",
                     name = "Marques Brownlee",
                     url = "https://www.youtube.com/@mkbhd",
-                    avatarUrl = ""
+                    avatarUrl = "https://yt3.googleusercontent.com/lkH37D712tiyphnu0Id0D5MwwQ7IRuwgQLVD05iMXlDWO-kDHqqd8vNRB0T5_U1QzB2gG-1T3Q=s800-c-k-c0x00ffffff-no-rj"
                 ),
                 SubscribedChannel(
                     id = "@veritasium",
                     name = "Veritasium",
                     url = "https://www.youtube.com/@veritasium",
-                    avatarUrl = ""
+                    avatarUrl = "https://yt3.googleusercontent.com/mDsnmfcHgd1fh7whK-hRer1vh3p03-7yYvOtd9-i3y0dM983J4Z04o8s4sYx1L5oKj9y1_01=s800-c-k-c0x00ffffff-no-rj"
                 ),
                 SubscribedChannel(
                     id = "@kurzgesagt",
                     name = "Kurzgesagt – In a Nutshell",
                     url = "https://www.youtube.com/@kurzgesagt",
-                    avatarUrl = ""
+                    avatarUrl = "https://yt3.googleusercontent.com/ytc/AIdro_n42Cg8gG3yK_U8K89y6f7j63H5y7m8L5h4D1=s800-c-k-c0x00ffffff-no-rj"
                 )
             )
             saveSubscribedChannels(defaults)
@@ -151,16 +151,39 @@ object YoutubePreferences {
         val cleaned = channels.map { ch ->
             if (ch.avatarUrl.contains("yt3.googleusercontent.com/ytc/AIdro_k6QG_81F4n3yC") ||
                 ch.avatarUrl.contains("AIdro_k6QG_81F4n3yC-G1l9jX3b4_wX2D8r_E_r_q") ||
-                ch.avatarUrl.length < 30
+                (ch.avatarUrl.isNotBlank() && ch.avatarUrl.length < 30)
             ) {
                 modified = true
-                ch.copy(avatarUrl = "")
+                val restored = when {
+                    ch.id.equals("@mkbhd", ignoreCase = true) || ch.url.contains("@mkbhd", ignoreCase = true) ->
+                        "https://yt3.googleusercontent.com/lkH37D712tiyphnu0Id0D5MwwQ7IRuwgQLVD05iMXlDWO-kDHqqd8vNRB0T5_U1QzB2gG-1T3Q=s800-c-k-c0x00ffffff-no-rj"
+                    ch.id.equals("@veritasium", ignoreCase = true) || ch.url.contains("@veritasium", ignoreCase = true) ->
+                        "https://yt3.googleusercontent.com/mDsnmfcHgd1fh7whK-hRer1vh3p03-7yYvOtd9-i3y0dM983J4Z04o8s4sYx1L5oKj9y1_01=s800-c-k-c0x00ffffff-no-rj"
+                    ch.id.equals("@kurzgesagt", ignoreCase = true) || ch.url.contains("@kurzgesagt", ignoreCase = true) ->
+                        "https://yt3.googleusercontent.com/ytc/AIdro_n42Cg8gG3yK_U8K89y6f7j63H5y7m8L5h4D1=s800-c-k-c0x00ffffff-no-rj"
+                    else -> ""
+                }
+                ch.copy(avatarUrl = restored)
+            } else if (ch.avatarUrl.isBlank()) {
+                val restored = when {
+                    ch.id.equals("@mkbhd", ignoreCase = true) || ch.url.contains("@mkbhd", ignoreCase = true) ->
+                        "https://yt3.googleusercontent.com/lkH37D712tiyphnu0Id0D5MwwQ7IRuwgQLVD05iMXlDWO-kDHqqd8vNRB0T5_U1QzB2gG-1T3Q=s800-c-k-c0x00ffffff-no-rj"
+                    ch.id.equals("@veritasium", ignoreCase = true) || ch.url.contains("@veritasium", ignoreCase = true) ->
+                        "https://yt3.googleusercontent.com/mDsnmfcHgd1fh7whK-hRer1vh3p03-7yYvOtd9-i3y0dM983J4Z04o8s4sYx1L5oKj9y1_01=s800-c-k-c0x00ffffff-no-rj"
+                    ch.id.equals("@kurzgesagt", ignoreCase = true) || ch.url.contains("@kurzgesagt", ignoreCase = true) ->
+                        "https://yt3.googleusercontent.com/ytc/AIdro_n42Cg8gG3yK_U8K89y6f7j63H5y7m8L5h4D1=s800-c-k-c0x00ffffff-no-rj"
+                    else -> ""
+                }
+                if (restored.isNotBlank()) {
+                    modified = true
+                    ch.copy(avatarUrl = restored)
+                } else ch
             } else {
                 ch
             }
         }
         if (modified) {
-            Log.d(TAG, "Cleaned legacy truncated avatar URLs; will resolve dynamically at runtime")
+            Log.d(TAG, "Restored valid channel avatar URLs")
             saveSubscribedChannels(cleaned)
         }
     }
@@ -338,7 +361,15 @@ object YoutubePreferences {
         val raw = prefs?.getString(KEY_ROW_ORDER, null) ?: return defaultRowOrder
         return try {
             val keys = fromJson<List<String>>(raw)
-            val parsed = keys.mapNotNull { HomeRowType.fromPrefKey(it) }
+            val parsed = keys.mapNotNull { HomeRowType.fromPrefKey(it) }.toMutableList()
+            if (!parsed.contains(HomeRowType.SUBSCRIBED_CHANNELS)) {
+                val subIdx = parsed.indexOf(HomeRowType.COMBINED_SUBSCRIPTIONS)
+                if (subIdx >= 0) {
+                    parsed.add(subIdx + 1, HomeRowType.SUBSCRIBED_CHANNELS)
+                } else {
+                    parsed.add(0, HomeRowType.SUBSCRIBED_CHANNELS)
+                }
+            }
             val missing = defaultRowOrder.filterNot { parsed.contains(it) }
             parsed + missing
         } catch (_: Exception) {
@@ -353,6 +384,7 @@ object YoutubePreferences {
 
     val defaultRowOrder: List<HomeRowType> = listOf(
         HomeRowType.COMBINED_SUBSCRIPTIONS,
+        HomeRowType.SUBSCRIBED_CHANNELS,
         HomeRowType.SHORTS,
         HomeRowType.INDIVIDUAL_CHANNELS,
         HomeRowType.TRENDING,

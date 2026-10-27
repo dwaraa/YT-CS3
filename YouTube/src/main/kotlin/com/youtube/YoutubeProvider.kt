@@ -153,11 +153,18 @@ class YoutubeProvider : MainAPI() {
         val watchUrl = YoutubeLoaders.sanitizeToWatchUrl(data)
         var linkFound = false
 
-        val defaultHeaders = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        val cookieStr = YoutubeDownloader.getCookieHeader()
+        val defaultHeaders = mutableMapOf(
+            "User-Agent" to YoutubeDownloader.USER_AGENT,
             "Referer" to "https://www.youtube.com/",
-            "Origin" to "https://www.youtube.com"
-        )
+            "Origin" to "https://www.youtube.com",
+            "Accept" to "*/*",
+            "Connection" to "keep-alive"
+        ).apply {
+            if (cookieStr.isNotBlank()) {
+                put("Cookie", cookieStr)
+            }
+        }
 
         // 1. Direct NewPipe stream resolution
         try {

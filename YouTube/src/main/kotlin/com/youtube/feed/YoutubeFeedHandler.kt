@@ -164,14 +164,40 @@ class YoutubeFeedHandler(
         return newHomePageResponse(listOf(HomePageList(request.name, responses, isHorizontalImages = true)), hasNext = pageData.hasNextPage())
     }
 
-    private fun getSubscribedChannelsFeed(headerTitle: String): HomePageResponse {
+    private suspend fun getSubscribedChannelsFeed(headerTitle: String): HomePageResponse {
         val channels = YoutubePreferences.getSubscribedChannels()
         if (channels.isEmpty()) {
             val placeholder = createInfoCard("No Subscribed Channels (Use Settings to add channels)")
             return newHomePageResponse(listOf(HomePageList(headerTitle, listOf(placeholder), isHorizontalImages = false)), hasNext = false)
         }
 
-        val channelCards = channels.map { channel ->
+        // Dynamically resolve avatars for channels with missing avatarUrl in parallel
+        val resolvedChannels = coroutineScope {
+            channels.map { channel ->
+                if (channel.avatarUrl.isNotBlank()) {
+                    async { channel }
+                } else {
+                    async(Dispatchers.IO) {
+                        try {
+                            withTimeoutOrNull(3000L) {
+                                val extractor = service.getChannelExtractor(channel.url)
+                                extractor.fetchPage()
+                                val avatar = extractor.avatars.lastOrNull()?.url.orEmpty()
+                                if (avatar.isNotBlank()) {
+                                    YoutubePreferences.updateChannelAvatar(channel.url, avatar)
+                                    channel.copy(avatarUrl = avatar)
+                                } else channel
+                            } ?: channel
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed resolving avatar for ${channel.name}: ${e.message}")
+                            channel
+                        }
+                    }
+                }
+            }.awaitAll()
+        }
+
+        val channelCards = resolvedChannels.map { channel ->
             with(mainApi) {
                 newTvSeriesSearchResponse(channel.name, channel.url, TvType.TvSeries) {
                     this.posterUrl = channel.avatarUrl.takeIf { it.isNotBlank() } ?: defaultIcon

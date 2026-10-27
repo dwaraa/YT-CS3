@@ -242,28 +242,35 @@ object YoutubeLinkResolver {
             Log.w(TAG, "Progressive stream generation failed: ${t.message}")
         }
 
-        // E. Video-Only Streams (handled safely: attach audio if supported; avoid fMP4 decoder crashes)
+        // E. Video-Only Streams (handled safely: attach audio if supported; prioritize WebM/VP9 to prevent MediaCodec ERROR_CODE_DECODER_INIT_FAILED 4001)
         try {
             val rawVideoOnlyStreams = info.videoOnlyStreams.orEmpty().filter { !it.content.isNullOrBlank() }
             for (stream in rawVideoOnlyStreams) {
                 val height = extractPixelHeight(stream.resolution, stream.height)
                 if (height <= 0) continue
 
-                val formatTag = (stream.format?.name ?: stream.codec ?: "MP4").uppercase()
-                val isMp4 = formatTag.contains("MP4") || formatTag.contains("AVC") || formatTag.contains("H264")
-
-                // Fragmented MP4 video-only chunks from YouTube lack progressive SPS/PPS container headers
-                // and trigger ERROR_CODE_DECODER_INIT_FAILED (4001) in ExoPlayer ProgressiveMediaSource.
-                if (!supportsSeparateAudio && isMp4) {
-                    continue
-                }
+                val formatRaw = (stream.format?.name ?: stream.codec ?: "MP4").uppercase()
+                val isWebmOrVp9 = formatRaw.contains("WEBM") || formatRaw.contains("VP9") ||
+                    formatRaw.contains("VP09") || (stream.codec?.contains("vp", ignoreCase = true) == true) ||
+                    (stream.codec?.contains("av01", ignoreCase = true) == true) ||
+                    (stream.codec?.contains("av1", ignoreCase = true) == true)
+                val isMp4 = !isWebmOrVp9 && (formatRaw.contains("MP4") || formatRaw.contains("AVC") ||
+                    formatRaw.contains("H264") || (stream.codec?.contains("avc", ignoreCase = true) == true))
 
                 val resLabel = formatResolutionLabel(height)
                 val fpsTag = if (stream.fps > 30) " ${stream.fps}fps" else ""
                 val qualityNum = heightToQuality(height)
                 val muteTag = if (!supportsSeparateAudio) " [Video Only]" else ""
 
-                val primaryLinkName = "$providerName $resLabel$fpsTag ($formatTag)$muteTag"
+                // Fragmented MP4 video-only chunks from YouTube lack progressive SPS/PPS container headers
+                // and trigger ERROR_CODE_DECODER_INIT_FAILED (4001) in ExoPlayer MediaCodecVideoRenderer.
+                // WebM (VP9) streams have valid container keyframes and initialize MediaCodec reliably on all devices.
+                // We mark MP4 video-only streams with [External/VLC] so ExoPlayer chooses WebM,
+                // while users using external VLC can still access the MP4 link.
+                val formatLabel = if (isWebmOrVp9) "WebM" else "MPEG-4"
+                val vlcTag = if (isMp4) " [External/VLC]" else ""
+
+                val primaryLinkName = "$providerName $resLabel$fpsTag ($formatLabel)$muteTag$vlcTag"
                 val link = newExtractorLink(
                     source = providerName,
                     name = primaryLinkName,
@@ -285,26 +292,49 @@ object YoutubeLinkResolver {
 
         // G. Prioritize & Sort Links
         // Strictly honor user preferred resolution:
-        // - Exact match gets highest priority
+        // - Exact match in WebM gets highest priority
+        // - Adaptive DASH manifest prioritized for Auto
+        // - MP4 video-only streams placed below WebM to avoid decoder init crash in ExoPlayer
         // - Lower resolutions are safe fallbacks
-        // - Higher resolutions (like 4K when user chose 720p or 1080p) are never prioritized over preferred
         fun scoreLink(link: ExtractorLink): Int {
             if (link.type == ExtractorLinkType.M3U8) return 200000
             val isMute = link.name.contains("[Video Only]")
+            val isExternalVlc = link.name.contains("[External/VLC]")
+            val isWebm = link.name.contains("(WebM)")
             val q = link.quality
 
+            // Video-only streams without audio rank lowest
+            if (isMute) return q
+
+            // MP4 video-only streams trigger ERROR_CODE_DECODER_INIT_FAILED (4001) in ExoPlayer,
+            // so rank them below ExoPlayer-compatible WebM and DASH streams
+            if (isExternalVlc) return 5000 + q
+
             if (targetHeight == null) {
-                // Auto: DASH first, then highest progressive
-                if (isMute) return q
-                return if (link.type == ExtractorLinkType.DASH) 90000 else 10000 + q
+                // Auto preference: Adaptive DASH manifest first, then highest WebM
+                return when {
+                    link.type == ExtractorLinkType.DASH -> 150000
+                    isWebm -> 20000 + q
+                    else -> 10000 + q
+                }
             }
 
-            if (isMute) return q // Mute video-only streams ranked lowest
-
+            // User chose a specific preferred resolution (e.g. 720p, 1080p, 1440p, 2160p):
             return when {
-                q == targetHeight -> 100000
-                q < targetHeight -> 50000 + q
-                else -> 10000 - q // Higher than preferred placed below preferred
+                // Exact resolution match in WebM gets top priority
+                isWebm && q == targetHeight -> 100000
+                // DASH adaptive is safe second priority
+                link.type == ExtractorLinkType.DASH -> 95000
+                // Exact resolution match non-WebM (progressive muxed)
+                q == targetHeight -> 90000
+                // Lower WebM resolutions are prioritized fallbacks
+                isWebm && q < targetHeight -> 50000 + q
+                // Other lower resolutions
+                q < targetHeight -> 40000 + q
+                // Higher than target WebM
+                isWebm -> 20000 - q
+                // Other higher resolutions
+                else -> 10000 - q
             }
         }
 

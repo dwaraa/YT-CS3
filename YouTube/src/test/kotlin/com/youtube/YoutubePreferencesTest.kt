@@ -65,4 +65,13 @@ class YoutubePreferencesTest {
         assertEquals(SearchSortOrder.VIEW_COUNT, SearchSortOrder.fromPrefValue("views"))
         assertEquals(SearchSortOrder.RATING, SearchSortOrder.fromPrefValue("rating"))
     }
+
+    @Test
+    fun testDefaultRowOrder_containsSubscribedChannels() {
+        val defaultRows = YoutubePreferences.defaultRowOrder
+        assertTrue(defaultRows.contains(HomeRowType.SUBSCRIBED_CHANNELS))
+        assertTrue(defaultRows.contains(HomeRowType.COMBINED_SUBSCRIPTIONS))
+        assertEquals(HomeRowType.COMBINED_SUBSCRIPTIONS, defaultRows[0])
+        assertEquals(HomeRowType.SUBSCRIBED_CHANNELS, defaultRows[1])
+    }
 }

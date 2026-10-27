@@ -54,6 +54,10 @@ class YoutubeDownloader(
             }
         }
 
+        fun getCookieHeader(): String {
+            return cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
+        }
+
         @Synchronized
         fun refreshConsentCookies(client: OkHttpClient? = null, force: Boolean = false) {
             val now = System.currentTimeMillis()
