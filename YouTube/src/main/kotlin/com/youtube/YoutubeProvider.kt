@@ -15,8 +15,12 @@ import org.schabi.newpipe.extractor.channel.ChannelInfoItem
 import org.schabi.newpipe.extractor.exceptions.*
 import org.schabi.newpipe.extractor.kiosk.KioskExtractor
 import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
+import org.schabi.newpipe.extractor.stream.AudioStream
+import org.schabi.newpipe.extractor.stream.AudioTrackType
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import org.schabi.newpipe.extractor.stream.StreamType
+import org.schabi.newpipe.extractor.stream.VideoStream
 import java.util.concurrent.ConcurrentHashMap
 
 class YoutubeProvider : MainAPI() {
@@ -72,6 +76,149 @@ class YoutubeProvider : MainAPI() {
                     "YouTube Layout Parsing Error (Page structure changed)"
                 else ->
                     t.localizedMessage?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
+            }
+        }
+
+        // --- Numeric Resolution and Quality Parsing Helpers ---
+
+        fun extractPixelHeight(resolutionStr: String?, heightInt: Int = 0): Int {
+            if (heightInt > 0) return heightInt
+            if (resolutionStr.isNullOrBlank()) return 0
+            val cleaned = resolutionStr.trim().lowercase()
+            return when {
+                cleaned.contains("4320") || cleaned.contains("8k") -> 4320
+                cleaned.contains("2160") || cleaned.contains("4k") -> 2160
+                cleaned.contains("1440") || cleaned.contains("2k") -> 1440
+                cleaned.contains("1080") -> 1080
+                cleaned.contains("720") -> 720
+                cleaned.contains("480") -> 480
+                cleaned.contains("360") -> 360
+                cleaned.contains("240") -> 240
+                cleaned.contains("144") -> 144
+                else -> {
+                    val match = Regex("""(\d{3,4})""").find(cleaned)
+                    match?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                }
+            }
+        }
+
+        fun parsePreferredTargetHeight(pref: String?): Int? {
+            if (pref.isNullOrBlank() || pref.equals("Auto", ignoreCase = true) || pref.contains("auto", ignoreCase = true)) {
+                return null
+            }
+            val height = extractPixelHeight(pref)
+            return if (height > 0) height else null
+        }
+
+        fun heightToQuality(height: Int): Int {
+            return when {
+                height >= 2160 -> Qualities.P2160.value
+                height >= 1440 -> Qualities.P1440.value
+                height >= 1080 -> Qualities.P1080.value
+                height >= 720 -> Qualities.P720.value
+                height >= 480 -> Qualities.P480.value
+                height >= 360 -> Qualities.P360.value
+                height >= 240 -> Qualities.P240.value
+                else -> Qualities.P144.value
+            }
+        }
+
+        fun formatResolutionLabel(height: Int): String {
+            return when (height) {
+                4320 -> "4320p (8K)"
+                2160 -> "2160p (4K)"
+                1440 -> "1440p (2K)"
+                1080 -> "1080p"
+                720 -> "720p"
+                480 -> "480p"
+                360 -> "360p"
+                240 -> "240p"
+                144 -> "144p"
+                else -> if (height > 0) "${height}p" else "Video"
+            }
+        }
+
+        data class ParsedAudioTrack(
+            val stream: AudioStream,
+            val languageName: String,
+            val trackTypeTag: String,
+            val bitrateKbps: String,
+            val codec: String,
+            val fullLabel: String,
+            val isOriginal: Boolean,
+            val isDubbed: Boolean
+        )
+
+        fun parseAudioStream(stream: AudioStream): ParsedAudioTrack {
+            val lang = stream.audioTrackName?.takeIf { it.isNotBlank() }
+                ?: stream.audioLocale?.displayLanguage?.takeIf { it.isNotBlank() }
+                ?: "English"
+
+            val typeTag = when (stream.audioTrackType) {
+                AudioTrackType.ORIGINAL -> " [ORIGINAL]"
+                AudioTrackType.DUBBED -> " [DUBBED]"
+                AudioTrackType.DESCRIPTIVE -> " [DESCRIPTIVE]"
+                AudioTrackType.SECONDARY -> " [SECONDARY]"
+                else -> ""
+            }
+
+            val br = if (stream.averageBitrate > 0) stream.averageBitrate else stream.bitrate
+            val kbps = if (br > 1000) "${br / 1000}kbps" else if (br > 0) "${br}kbps" else ""
+            val codec = (stream.format?.name ?: stream.codec ?: "M4A").uppercase()
+            val audioDetails = listOfNotNull(kbps.takeIf { it.isNotBlank() }, codec.takeIf { it.isNotBlank() }).joinToString(" ")
+            val fullLabel = "$lang$typeTag" + (if (audioDetails.isNotBlank()) " ($audioDetails)" else "")
+
+            return ParsedAudioTrack(
+                stream = stream,
+                languageName = lang,
+                trackTypeTag = typeTag,
+                bitrateKbps = kbps,
+                codec = codec,
+                fullLabel = fullLabel,
+                isOriginal = stream.audioTrackType == AudioTrackType.ORIGINAL,
+                isDubbed = stream.audioTrackType == AudioTrackType.DUBBED
+            )
+        }
+
+        fun selectBestAudio(
+            audioList: List<ParsedAudioTrack>,
+            preferredLang: String?
+        ): ParsedAudioTrack? {
+            if (audioList.isEmpty()) return null
+
+            // 1. If preferred language matches and is not None / Auto
+            if (!preferredLang.isNullOrBlank() && !preferredLang.equals("None", ignoreCase = true) && !preferredLang.equals("Auto", ignoreCase = true)) {
+                val matchingPref = audioList.filter { it.languageName.contains(preferredLang, ignoreCase = true) }
+                if (matchingPref.isNotEmpty()) {
+                    return matchingPref.maxByOrNull {
+                        val b = if (it.stream.averageBitrate > 0) it.stream.averageBitrate else it.stream.bitrate
+                        b
+                    }
+                }
+            }
+
+            // 2. Original track
+            val originalTracks = audioList.filter { it.isOriginal }
+            if (originalTracks.isNotEmpty()) {
+                return originalTracks.maxByOrNull {
+                    val b = if (it.stream.averageBitrate > 0) it.stream.averageBitrate else it.stream.bitrate
+                    b
+                }
+            }
+
+            // 3. Prefer M4A / AAC with highest bitrate (best ExoPlayer hardware decoder compatibility)
+            val m4aTracks = audioList.filter { it.codec.contains("M4A") || it.codec.contains("AAC") || it.codec.contains("MP4") }
+            if (m4aTracks.isNotEmpty()) {
+                return m4aTracks.maxByOrNull {
+                    val b = if (it.stream.averageBitrate > 0) it.stream.averageBitrate else it.stream.bitrate
+                    b
+                }
+            }
+
+            // 4. Any track with highest bitrate
+            return audioList.maxByOrNull {
+                val b = if (it.stream.averageBitrate > 0) it.stream.averageBitrate else it.stream.bitrate
+                b
             }
         }
     }
@@ -523,17 +670,22 @@ class YoutubeProvider : MainAPI() {
     private suspend fun loadVideo(url: String): LoadResponse {
         val watchUrl = sanitizeToWatchUrl(url)
         val info = StreamInfo.getInfo(ServiceList.YouTube, watchUrl)
-        val isLive = info.streamType?.name?.contains("LIVE") == true
+        val isLiveStream = info.streamType == StreamType.LIVE_STREAM || info.streamType == StreamType.AUDIO_LIVE_STREAM
+        val isPostLive = info.streamType == StreamType.POST_LIVE_STREAM
         val videoTitle = info.name ?: "YouTube Video"
-        val videoDescription = info.description?.content.toString()
+        val rawDescription = info.description?.content.toString()
         val poster = info.thumbnails.lastOrNull()?.url
 
+        // Check if stream is upcoming / scheduled
+        val isUpcoming = isLiveStream && info.hlsUrl.isNullOrBlank() &&
+                info.videoStreams.isNullOrEmpty() && info.videoOnlyStreams.isNullOrEmpty()
+
         // CloudStream expects runtime in MINUTES for movies
-        val durationMinutes = if (info.duration > 0) {
+        val durationMinutes = if (!isLiveStream && info.duration > 0) {
             Math.round(info.duration / 60.0).toInt().coerceAtLeast(1)
         } else null
 
-        val exactDurationText = if (info.duration > 0) {
+        val exactDurationText = if (!isLiveStream && info.duration > 0) {
             val totalSeconds = info.duration
             val hours = totalSeconds / 3600
             val minutes = (totalSeconds % 3600) / 60
@@ -545,14 +697,18 @@ class YoutubeProvider : MainAPI() {
             }
         } else ""
 
-        val enrichedPlot = if (exactDurationText.isNotBlank()) {
-            "⏱️ Runtime: $exactDurationText\n\n$videoDescription"
-        } else videoDescription
+        val enrichedPlot = when {
+            isUpcoming -> "⏳ Scheduled / Upcoming Live Stream: This broadcast has not started yet. Please check back at the scheduled start time.\n\n$rawDescription"
+            isLiveStream -> "🔴 LIVE NOW: Real-time broadcast\n\n$rawDescription"
+            isPostLive -> "⏹️ Stream Ended: Broadcast has concluded and is being processed by YouTube.\n\n$rawDescription"
+            exactDurationText.isNotBlank() -> "⏱️ Runtime: $exactDurationText\n\n$rawDescription"
+            else -> rawDescription
+        }
 
         return newMovieLoadResponse(
             videoTitle,
             url,
-            if (isLive) TvType.Live else TvType.Others,
+            if (isLiveStream) TvType.Live else TvType.Others,
             url
         ) {
             this.plot = enrichedPlot
@@ -698,6 +854,11 @@ class YoutubeProvider : MainAPI() {
         }
     }
 
+    private data class ScoredLink(
+        val link: ExtractorLink,
+        val score: Int
+    )
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -713,108 +874,215 @@ class YoutubeProvider : MainAPI() {
 
         var linkFound = false
         var extractionFailureReason: String? = null
+        val generatedLinks = mutableListOf<ScoredLink>()
 
         // 1. Primary: Direct NewPipeExtractor Stream Resolution
         try {
             val info = StreamInfo.getInfo(ServiceList.YouTube, videoUrl)
 
-            // Preferred settings from user
-            val preferredQuality = YoutubePreferences.preferredQuality
+            // Preferred settings from user (numeric target height & preferred subtitle language)
+            val preferredQualitySetting = YoutubePreferences.preferredQuality
+            val targetHeight = parsePreferredTargetHeight(preferredQualitySetting)
             val preferredSubtitleLang = YoutubePreferences.preferredSubtitle
+
+            val isLiveStream = info.streamType == StreamType.LIVE_STREAM || info.streamType == StreamType.AUDIO_LIVE_STREAM
+            val isPostLive = info.streamType == StreamType.POST_LIVE_STREAM
+            val isUpcoming = isLiveStream && info.hlsUrl.isNullOrBlank() &&
+                    info.videoStreams.isNullOrEmpty() && info.videoOnlyStreams.isNullOrEmpty()
+
+            if (isUpcoming) {
+                val msg = "This live stream is scheduled and has not started yet."
+                Log.w(TAG, msg)
+                throw ErrorLoadingException(msg)
+            }
+
+            if (isPostLive && info.videoStreams.isNullOrEmpty() && info.videoOnlyStreams.isNullOrEmpty() && info.hlsUrl.isNullOrBlank()) {
+                val msg = "Live stream has ended and is being processed by YouTube. Please check back shortly."
+                Log.w(TAG, msg)
+                throw ErrorLoadingException(msg)
+            }
 
             // A. Live HLS Master Playlist (if available)
             val hlsUrl = info.hlsUrl
             if (!hlsUrl.isNullOrBlank()) {
-                callback(
-                    newExtractorLink(
-                        source = name,
-                        name = "$name Live (Adaptive HLS)",
-                        url = hlsUrl,
-                        type = ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = "https://www.youtube.com/"
-                        this.quality = Qualities.P1080.value
-                        this.headers = defaultHeaders
-                    }
-                )
-                linkFound = true
+                val liveLink = newExtractorLink(
+                    source = name,
+                    name = "$name Live (Adaptive HLS 1080p)",
+                    url = hlsUrl,
+                    type = ExtractorLinkType.M3U8
+                ) {
+                    this.referer = "https://www.youtube.com/"
+                    this.quality = Qualities.P1080.value
+                    this.headers = defaultHeaders
+                }
+                generatedLinks.add(ScoredLink(liveLink, 100_000))
             }
 
-            // B. Progressive Video Streams (Muxed Video + Audio - rock solid playback on all devices)
-            val sortedStreams = info.videoStreams?.sortedByDescending { stream ->
-                val qual = stream.quality ?: ""
+            // B. Process Audio Streams
+            val rawAudioStreams = info.audioStreams.orEmpty().filter { !it.content.isNullOrBlank() }
+            val parsedAudioTracks = rawAudioStreams.map { parseAudioStream(it) }
+
+            // Select primary audio track (prefer matching user preference -> original -> high bitrate M4A -> Opus)
+            val primaryAudio = selectBestAudio(parsedAudioTracks, preferredSubtitleLang)
+
+            // Distinct audio tracks for dubbed variations & audio-only streaming
+            val distinctAudioTracks = parsedAudioTracks.distinctBy { Pair(it.languageName, it.trackTypeTag) }
+
+            // C. Adaptive Playback: Pair Video-Only Streams (4K, 1440p, 1080p, 720p, etc.) with Audio
+            val rawVideoOnlyStreams = info.videoOnlyStreams.orEmpty().filter { !it.content.isNullOrBlank() }
+
+            rawVideoOnlyStreams.forEach { stream ->
+                val height = extractPixelHeight(stream.quality, stream.height)
+                if (height <= 0) return@forEach
+
+                val resLabel = formatResolutionLabel(height)
+                val fpsTag = if (stream.fps > 30) " ${stream.fps}fps" else ""
+                val formatTag = (stream.format?.name ?: stream.codec ?: "MP4").uppercase()
+                val qualityNum = heightToQuality(height)
+
+                val isPreferred = (targetHeight != null && height == targetHeight)
+                val prefBadge = if (isPreferred) " ⭐" else ""
+
+                // Audio pairing for high quality playback with sound
+                val audioFile = primaryAudio?.let { AudioHelper.createAudioFile(it.stream.content, defaultHeaders) }
+                val audioTracksList = if (audioFile != null) listOf(audioFile) else emptyList()
+
+                val primaryLinkName = "$name $resLabel$fpsTag ($formatTag)$prefBadge"
+                val link = newExtractorLink(
+                    source = name,
+                    name = primaryLinkName,
+                    url = stream.content,
+                    type = ExtractorLinkType.VIDEO
+                ) {
+                    this.referer = "https://www.youtube.com/"
+                    this.quality = qualityNum
+                    this.headers = defaultHeaders
+                    this.audioTracks = audioTracksList
+                }
+
+                var score = height * 10
+                if (isPreferred) score += 50_000
+                if (stream.fps > 30) score += 200
+                if (formatTag.contains("MP4") || formatTag.contains("AVC") || formatTag.contains("H264")) score += 100
+
+                generatedLinks.add(ScoredLink(link, score))
+
+                // Also generate links for alternative dubbed audio tracks if available on 1080p+ streams
+                if (height >= 1080 && distinctAudioTracks.size > 1) {
+                    distinctAudioTracks.filter { it.isDubbed }.forEach { dubbedTrack ->
+                        val dubbedLinkName = "$name $resLabel$fpsTag ($formatTag) • ${dubbedTrack.fullLabel}"
+                        val dubbedLink = newExtractorLink(
+                            source = name,
+                            name = dubbedLinkName,
+                            url = stream.content,
+                            type = ExtractorLinkType.VIDEO
+                        ) {
+                            this.referer = "https://www.youtube.com/"
+                            this.quality = qualityNum
+                            this.headers = defaultHeaders
+                            this.audioTracks = listOf(AudioHelper.createAudioFile(dubbedTrack.stream.content, defaultHeaders))
+                        }
+                        val dubbedScore = score - 150
+                        generatedLinks.add(ScoredLink(dubbedLink, dubbedScore))
+                    }
+                }
+            }
+
+            // D. Muxed Progressive Video Streams (Pre-combined video+audio safe fallbacks: 720p, 480p, 360p)
+            val rawMuxedStreams = info.videoStreams.orEmpty().filter { !it.content.isNullOrBlank() }
+
+            rawMuxedStreams.forEach { stream ->
+                val height = extractPixelHeight(stream.quality, stream.height)
+                if (height <= 0) return@forEach
+
+                val resLabel = formatResolutionLabel(height)
+                val fpsTag = if (stream.fps > 30) " ${stream.fps}fps" else ""
+                val formatTag = (stream.format?.name ?: stream.codec ?: "MP4").uppercase()
+                val qualityNum = heightToQuality(height)
+
+                val isPreferred = (targetHeight != null && height == targetHeight)
+                val prefBadge = if (isPreferred) " ⭐" else ""
+
+                val muxedLink = newExtractorLink(
+                    source = name,
+                    name = "$name $resLabel$fpsTag ($formatTag) [Muxed Fallback]$prefBadge",
+                    url = stream.content,
+                    type = ExtractorLinkType.VIDEO
+                ) {
+                    this.referer = "https://www.youtube.com/"
+                    this.quality = qualityNum
+                    this.headers = defaultHeaders
+                }
+
+                var score = (height * 10) - 50 // Slightly lower than paired high-bitrate video-only stream
+                if (isPreferred) score += 40_000
+                if (stream.fps > 30) score += 200
+                if (formatTag.contains("MP4")) score += 100
+
+                generatedLinks.add(ScoredLink(muxedLink, score))
+            }
+
+            // E. DASH Adaptive Multi-Audio Manifest (Dynamic streaming with ExoPlayer DashMediaSource)
+            val dashUrl = info.dashMpdUrl
+            if (!dashUrl.isNullOrBlank()) {
+                val dashLink = newExtractorLink(
+                    source = name,
+                    name = "$name Adaptive (DASH Multi-Audio 1080p+)",
+                    url = dashUrl,
+                    type = ExtractorLinkType.DASH
+                ) {
+                    this.referer = "https://www.youtube.com/"
+                    this.quality = Qualities.P1080.value
+                    this.headers = defaultHeaders
+                }
+                generatedLinks.add(ScoredLink(dashLink, 15_000))
+            }
+
+            // F. Standalone Audio-Only Streams (For background playback or listening)
+            distinctAudioTracks.forEach { track ->
+                val audioLink = newExtractorLink(
+                    source = name,
+                    name = "$name Audio • ${track.fullLabel}",
+                    url = track.stream.content,
+                    type = ExtractorLinkType.VIDEO
+                ) {
+                    this.referer = "https://www.youtube.com/"
+                    this.quality = Qualities.Unknown.value
+                    this.headers = defaultHeaders
+                }
+                generatedLinks.add(ScoredLink(audioLink, 50))
+            }
+
+            // G. Subtitles / Closed Captions with Translation & Preference Honoring
+            val rawSubtitles = info.subtitles.orEmpty().filter { !it.content.isNullOrBlank() }
+
+            val sortedSubtitles = rawSubtitles.sortedByDescending { sub ->
+                val displayName = sub.displayLanguageName ?: sub.languageTag ?: ""
+                val isPref = preferredSubtitleLang != "None" && preferredSubtitleLang != "Auto" &&
+                        displayName.contains(preferredSubtitleLang, ignoreCase = true)
                 when {
-                    preferredQuality != "Auto" && qual.contains(preferredQuality) -> 1000
-                    qual.contains("2160") || qual.contains("4K") -> 900
-                    qual.contains("1440") || qual.contains("2K") -> 800
-                    qual.contains("1080") -> 700
-                    qual.contains("720") -> 600
-                    qual.contains("480") -> 500
-                    qual.contains("360") -> 400
+                    isPref && !sub.isAutoGenerated -> 1000
+                    isPref && sub.isAutoGenerated -> 900
+                    !sub.isAutoGenerated -> 500
                     else -> 100
                 }
             }
 
-            sortedStreams?.forEach { stream ->
-                val streamQuality = stream.quality ?: "720p"
-                val fpsTag = if (stream.fps > 30) " ${stream.fps}fps" else ""
-                val formatTag = stream.format?.name ?: "MP4"
-                val qualityNum = parseQuality(streamQuality)
-                val isPreferred = preferredQuality != "Auto" && streamQuality.contains(preferredQuality)
-                val prefBadge = if (isPreferred) " ⭐" else ""
-
-                callback(
-                    newExtractorLink(
-                        source = name,
-                        name = "$name $streamQuality$fpsTag ($formatTag)$prefBadge",
-                        url = stream.content,
-                        type = ExtractorLinkType.VIDEO
-                    ) {
-                        this.referer = "https://www.youtube.com/"
-                        this.quality = qualityNum
-                        this.headers = defaultHeaders
-                    }
-                )
-                linkFound = true
-            }
-
-            // C. DASH Adaptive Multi-Audio Manifest (1080p, 1440p, 4K multi-audio adaptive stream)
-            val dashUrl = info.dashMpdUrl
-            if (!dashUrl.isNullOrBlank()) {
-                callback(
-                    newExtractorLink(
-                        source = name,
-                        name = "$name Adaptive (DASH Multi-Audio 1080p+)",
-                        url = dashUrl,
-                        type = ExtractorLinkType.DASH
-                    ) {
-                        this.referer = "https://www.youtube.com/"
-                        this.quality = Qualities.P1080.value
-                        this.headers = defaultHeaders
-                    }
-                )
-                linkFound = true
-            }
-
-            // D. Subtitles / Closed Captions
-            val sortedSubtitles = info.subtitles?.sortedByDescending { sub ->
-                val lang = sub.displayLanguageName ?: sub.languageTag ?: ""
-                if (preferredSubtitleLang != "None" && preferredSubtitleLang != "Auto" && lang.contains(preferredSubtitleLang, ignoreCase = true)) {
-                    100
-                } else 10
-            }
-
-            sortedSubtitles?.forEach { sub ->
-                val autoTag = if (sub.isAutoGenerated) " (Auto)" else ""
-                val langName = "${sub.displayLanguageName ?: sub.languageTag ?: "English"}$autoTag"
+            sortedSubtitles.forEach { sub ->
+                val displayName = sub.displayLanguageName?.takeIf { it.isNotBlank() }
+                    ?: sub.languageTag?.takeIf { it.isNotBlank() }
+                    ?: "English"
+                val autoTag = if (sub.isAutoGenerated) " (Auto-generated)" else ""
+                val langLabel = "$displayName$autoTag"
 
                 subtitleCallback(
                     newSubtitleFile(
-                        lang = langName,
+                        lang = langLabel,
                         url = sub.content
                     )
                 )
             }
+
         } catch (t: Throwable) {
             extractionFailureReason = formatExtractionError(t)
             Log.e(TAG, "StreamInfo extraction failed for '$videoUrl': $extractionFailureReason", t)
@@ -822,6 +1090,13 @@ class YoutubeProvider : MainAPI() {
             if (t is ReCaptchaException || extractionFailureReason.contains("Bot", ignoreCase = true) || extractionFailureReason.contains("Rate Limited", ignoreCase = true)) {
                 YoutubeDownloader.refreshConsentCookies(force = true)
             }
+        }
+
+        // Sort generated links by score descending (Preferred & best streams first, safe 360p fallback at bottom)
+        val sortedLinks = generatedLinks.sortedByDescending { it.score }
+        for (item in sortedLinks) {
+            callback(item.link)
+            linkFound = true
         }
 
         // 2. Secondary Fallback: Cloudstream native extractors (only if NewPipe found no links)
@@ -877,21 +1152,6 @@ class YoutubeProvider : MainAPI() {
 
         return patterns.firstNotNullOfOrNull { pattern ->
             pattern.toRegex().find(url)?.groupValues?.get(1)
-        }
-    }
-
-    private fun parseQuality(resolution: String?): Int {
-        if (resolution.isNullOrBlank()) return Qualities.Unknown.value
-        return when {
-            resolution.contains("2160") || resolution.contains("4k", ignoreCase = true) -> Qualities.P2160.value
-            resolution.contains("1440") || resolution.contains("2k", ignoreCase = true) -> Qualities.P1440.value
-            resolution.contains("1080") -> Qualities.P1080.value
-            resolution.contains("720") -> Qualities.P720.value
-            resolution.contains("480") -> Qualities.P480.value
-            resolution.contains("360") -> Qualities.P360.value
-            resolution.contains("240") -> Qualities.P240.value
-            resolution.contains("144") -> Qualities.P144.value
-            else -> Qualities.Unknown.value
         }
     }
 }

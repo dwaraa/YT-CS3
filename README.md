@@ -30,18 +30,27 @@ A high-performance **CloudStream 3** provider plugin for **YouTube**, powered by
 - **Actors / Channels**: Videos link the uploader as a person/channel with their avatar.
 - Clicking on a channel or searching by channel name/handle immediately opens the channel page, showing all uploaded videos as playable episodes.
 
-### 🎵 Video & Audio Streams (Current vs. Planned)
-- **Progressive Streams (Current)**:
-  - Rock-solid pre-muxed video+audio streams (up to 720p / 360p) with frame rate indicators (`60fps`) and format tags (`MP4`, `WebM`).
-  - Rock-solid, zero-buffer playback across all Android devices, Android TV, and Fire TV.
-- **Live Streams (Current)**:
-  - Adaptive HLS `.m3u8` master playlists for live broadcasts.
-- **Subtitles & Closed Captions (Current)**:
-  - Full language display names with auto-generated indicators (e.g., `English (Auto)`, `Spanish`).
-- **DASH Manifests (Current)**:
-  - Adaptive DASH MPD stream pass-through.
-- **Multi-Language Audio & Separate 1080p/4K Video *(Planned in Stage 2)***:
-  - Explicit `[ORIGINAL]` vs `[DUBBED]` audio track labeling and in-app muxing of separate video-only 1080p/1440p/4K streams are in active development.
+### 🎵 Video & Audio Playback Quality (Stage 2)
+- **Adaptive 1080p / 1440p (2K) / 4K (2160p) with Audio**:
+  - Automatically pairs high-resolution separate video-only streams (1080p60, 1440p, 4K) with the highest-bitrate matching audio stream via CloudStream's native ExoPlayer track merging.
+  - Full audio and video synchronization for crisp 60fps and ultra-high-definition playback.
+- **Audio Track Selection & Labeling**:
+  - Full inspection of audio streams with language name, `[ORIGINAL]` vs `[DUBBED]` status, bitrate (e.g., `160kbps`), and codec (`M4A`, `Opus`).
+  - Automatically generates additional dubbed video links when alternative language dubs (e.g. MrBeast international dubs) are available.
+  - Standalone high-bitrate audio streams available for pure listening with display off / low bandwidth.
+- **Numeric Quality Sorting & Preferred Quality Matching**:
+  - Resolves and sorts all streams strictly by numeric pixel height (`2160`, `1440`, `1080`, `720`, `480`, `360`) rather than fragile string prefixes.
+  - Correctly matches CloudStream preferred quality settings (e.g. `2160p (4K)`, `1080p (Full HD)`), badging matched streams with `⭐ [Preferred]` and placing them at the top of the link list.
+- **Safe Fallback Links**:
+  - Always includes pre-muxed 360p progressive fallback streams (`[Muxed Fallback]`) at the bottom of the list for weak network conditions or legacy hardware.
+- **Live Streams**:
+  - Active live broadcasts stream via adaptive HLS `.m3u8` master playlists.
+  - Upcoming scheduled live streams display scheduled start times and reminders; ended streams cleanly notify the user that VOD processing is underway.
+- **Subtitles & Closed Captions**:
+  - Uploaded closed captions and auto-generated transcripts with explicit `(Auto-generated)` tags.
+  - Subtitles are sorted and prioritized based on user's preferred subtitle language.
+- **DASH Manifests**:
+  - Adaptive DASH MPD stream pass-through with `ExtractorLinkType.DASH`.
 
 ### 🛡️ Reliability & Resilience
 - **Error Transparency**: Clear in-app error feedback (e.g., bot checks, age restrictions, region blocks) instead of silent failures.
@@ -52,8 +61,11 @@ A high-performance **CloudStream 3** provider plugin for **YouTube**, powered by
 
 ## ⚠️ Known Limitations & FAQ
 
-### Q: Why are highest progressive streams often 720p?
-**A:** YouTube only provides pre-muxed (combined audio + video) files up to 720p. Higher resolutions (1080p, 1440p, 4K) are stored by YouTube as separate video-only and audio-only adaptive DASH streams. CloudStream's standard player plays progressive and HLS streams out-of-the-box. Separate stream muxing for full 1080p/4K is being implemented in Stage 2.
+### Q: How does 1080p and 4K playback work?
+**A:** YouTube stores all resolutions above 720p as separate video-only and audio-only streams. This plugin uses CloudStream's ExoPlayer multi-source track merging (`audioTracks`) to pair the highest-fidelity video stream with the best audio track, providing seamless 1080p, 1440p, and 4K video with synchronized sound.
+
+### Q: Why are there multiple audio and dubbed links?
+**A:** YouTube channels with multi-language audio (such as MrBeast) provide separate audio tracks for different languages. The provider labels each audio stream as `[ORIGINAL]` or `[DUBBED]` with language, codec, and bitrate, and generates dedicated paired video links for secondary dubs so you can watch in your preferred language.
 
 ### Q: Why do age-restricted or members-only videos fail?
 **A:** Age-restricted and paid/member-only videos require an authenticated Google account with age verification. This provider operates anonymously via NewPipeExtractor without Google Play Services or account sign-in. When encountered, the plugin cleanly displays a helpful message explaining why the video cannot be played.

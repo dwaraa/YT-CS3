@@ -1,4 +1,4 @@
-version = 2
+version = 3
 
 cloudstream {
     description = "Watch YouTube videos, channels, playlists, and live streams in Cloudstream"
