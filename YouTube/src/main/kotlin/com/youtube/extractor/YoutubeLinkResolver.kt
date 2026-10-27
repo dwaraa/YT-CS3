@@ -190,22 +190,82 @@ object YoutubeLinkResolver {
         val primaryAudio = selectBestAudio(parsedAudioTracks, preferredSubtitleLang)
         val distinctAudioTracks = parsedAudioTracks.distinctBy { Pair(it.languageName, it.trackTypeTag) }
 
-        // C. Adaptive Playback: Pair Video-Only Streams (4K, 1440p, 1080p, 720p, etc.) with Audio
+        // C. Adaptive DASH Manifest Stream (Full HD, 2K, 4K WITH synchronized audio)
+        try {
+            if (!info.dashMpdUrl.isNullOrBlank()) {
+                val isPreferred = targetHeight == null || targetHeight >= 1080
+                val prefBadge = if (isPreferred) " ⭐" else ""
+                generatedLinks.add(
+                    newExtractorLink(
+                        source = providerName,
+                        name = "$providerName Adaptive [Full HD / 4K + Audio] (DASH)$prefBadge",
+                        url = info.dashMpdUrl,
+                        type = ExtractorLinkType.DASH
+                    ) {
+                        this.headers = defaultHeaders
+                        this.quality = Qualities.P2160.value
+                    }
+                )
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "DASH stream generation failed: ${t.message}")
+        }
+
+        // D. Progressive Streams (pre-muxed audio + video - 100% reliable on all Android devices)
+        try {
+            val rawVideoStreams = info.videoStreams.orEmpty().filter { !it.content.isNullOrBlank() }
+            for (stream in rawVideoStreams) {
+                val height = extractPixelHeight(stream.resolution, stream.height)
+                if (height <= 0) continue
+                val resLabel = formatResolutionLabel(height)
+                val fpsTag = if (stream.fps > 30) " ${stream.fps}fps" else ""
+                val formatTag = (stream.format?.name ?: "MP4").uppercase()
+                val qualityNum = heightToQuality(height)
+
+                val isPreferred = (targetHeight != null && height == targetHeight) || (targetHeight == null && height >= 720)
+                val prefBadge = if (isPreferred) " ⭐" else ""
+
+                val link = newExtractorLink(
+                    source = providerName,
+                    name = "$providerName $resLabel$fpsTag ($formatTag)$prefBadge",
+                    url = stream.content,
+                    type = ExtractorLinkType.VIDEO
+                ) {
+                    this.headers = defaultHeaders
+                    this.quality = qualityNum
+                }
+                generatedLinks.add(link)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Progressive stream generation failed: ${t.message}")
+        }
+
+        // E. Video-Only Streams (handled safely: attach audio if supported; avoid fMP4 decoder crashes)
+        val supportsSeparateAudio = AudioTrackHelper.isSupported()
         try {
             val rawVideoOnlyStreams = info.videoOnlyStreams.orEmpty().filter { !it.content.isNullOrBlank() }
             for (stream in rawVideoOnlyStreams) {
-                val height = extractPixelHeight(stream.quality, stream.height)
+                val height = extractPixelHeight(stream.resolution, stream.height)
                 if (height <= 0) continue
+
+                val formatTag = (stream.format?.name ?: stream.codec ?: "MP4").uppercase()
+                val isMp4 = formatTag.contains("MP4") || formatTag.contains("AVC") || formatTag.contains("H264")
+
+                // Fragmented MP4 video-only chunks from YouTube lack progressive SPS/PPS container headers
+                // and trigger ERROR_CODE_DECODER_INIT_FAILED (4001) in ExoPlayer ProgressiveMediaSource.
+                if (!supportsSeparateAudio && isMp4) {
+                    continue
+                }
 
                 val resLabel = formatResolutionLabel(height)
                 val fpsTag = if (stream.fps > 30) " ${stream.fps}fps" else ""
-                val formatTag = (stream.format?.name ?: stream.codec ?: "MP4").uppercase()
                 val qualityNum = heightToQuality(height)
 
-                val isPreferred = (targetHeight != null && height == targetHeight)
+                val isPreferred = supportsSeparateAudio && (targetHeight != null && height == targetHeight)
                 val prefBadge = if (isPreferred) " ⭐" else ""
+                val muteTag = if (!supportsSeparateAudio) " [Mute - No Audio]" else ""
 
-                val primaryLinkName = "$providerName $resLabel$fpsTag ($formatTag)$prefBadge"
+                val primaryLinkName = "$providerName $resLabel$fpsTag ($formatTag)$muteTag$prefBadge"
                 val link = newExtractorLink(
                     source = providerName,
                     name = primaryLinkName,
@@ -216,14 +276,15 @@ object YoutubeLinkResolver {
                     this.quality = qualityNum
                 }
 
-                // Safely attach audioTracks if supported by the host CloudStream runtime
-                primaryAudio?.let { audioTrack ->
-                    AudioTrackHelper.attachAudioTrack(link, audioTrack.stream.content, defaultHeaders)
+                if (supportsSeparateAudio) {
+                    primaryAudio?.let { audioTrack ->
+                        AudioTrackHelper.attachAudioTrack(link, audioTrack.stream.content, defaultHeaders)
+                    }
                 }
                 generatedLinks.add(link)
 
-                // Additional links for multi-language dubbed tracks
-                if (height >= 1080 && distinctAudioTracks.size > 1) {
+                // Dubbed tracks for high resolution if runtime supports separate audio
+                if (supportsSeparateAudio && height >= 1080 && distinctAudioTracks.size > 1) {
                     for (dubbedTrack in distinctAudioTracks.filter { it != primaryAudio && it.isDubbed }) {
                         val dubbedLink = newExtractorLink(
                             source = providerName,
@@ -240,55 +301,7 @@ object YoutubeLinkResolver {
                 }
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "Video-only stream pairing skipped or failed: ${t.message}")
-        }
-
-        // D. Progressive Streams (pre-muxed audio + video - GUARANTEED to play on all versions)
-        try {
-            val rawVideoStreams = info.videoStreams.orEmpty().filter { !it.content.isNullOrBlank() }
-            for (stream in rawVideoStreams) {
-                val height = extractPixelHeight(stream.quality, stream.height)
-                val resLabel = formatResolutionLabel(height)
-                val fpsTag = if (stream.fps > 30) " ${stream.fps}fps" else ""
-                val formatTag = (stream.format?.name ?: "MP4").uppercase()
-                val qualityNum = heightToQuality(height)
-
-                val isPreferred = (targetHeight != null && height == targetHeight)
-                val prefBadge = if (isPreferred) " ⭐" else ""
-                val fallbackTag = if (height <= 360) " [Muxed Fallback]" else ""
-
-                val link = newExtractorLink(
-                    source = providerName,
-                    name = "$providerName $resLabel$fpsTag ($formatTag)$fallbackTag$prefBadge",
-                    url = stream.content,
-                    type = ExtractorLinkType.VIDEO
-                ) {
-                    this.headers = defaultHeaders
-                    this.quality = qualityNum
-                }
-                generatedLinks.add(link)
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Progressive stream generation failed: ${t.message}")
-        }
-
-        // E. Adaptive DASH Manifest Stream
-        try {
-            if (!info.dashMpdUrl.isNullOrBlank()) {
-                generatedLinks.add(
-                    newExtractorLink(
-                        source = providerName,
-                        name = "$providerName Adaptive (DASH)",
-                        url = info.dashMpdUrl,
-                        type = ExtractorLinkType.DASH
-                    ) {
-                        this.headers = defaultHeaders
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "DASH stream generation failed: ${t.message}")
+            Log.w(TAG, "Video-only stream processing skipped or failed: ${t.message}")
         }
 
         // F. Standalone Audio Streams
@@ -310,17 +323,25 @@ object YoutubeLinkResolver {
         }
 
         // G. Prioritize & Sort Links
+        // Priority order:
+        // 1. Preferred (⭐) first
+        // 2. Live HLS streams
+        // 3. DASH Adaptive streams (Full HD/4K + Audio)
+        // 4. Progressive muxed audio+video streams (720p/360p)
+        // 5. Video-only mute streams (if no audio support)
+        // 6. Audio-only streams
         val sortedLinks = generatedLinks.sortedWith(
             compareByDescending<ExtractorLink> { it.name.contains("⭐") }
                 .thenByDescending {
-                    when (it.type) {
-                        ExtractorLinkType.M3U8 -> 10000
-                        ExtractorLinkType.VIDEO -> if (it.name.startsWith("$providerName Audio:")) -100 else it.quality
-                        ExtractorLinkType.DASH -> 500
+                    when {
+                        it.type == ExtractorLinkType.M3U8 -> 20000
+                        it.type == ExtractorLinkType.DASH -> 15000
+                        it.name.contains("[Mute - No Audio]") -> 50 + (it.quality / 100)
+                        it.type == ExtractorLinkType.VIDEO && !it.name.startsWith("$providerName Audio:") -> 1000 + it.quality
+                        it.name.startsWith("$providerName Audio:") -> -100
                         else -> 0
                     }
                 }
-                .thenBy { it.name.contains("[Muxed Fallback]") }
         )
 
         sortedLinks.forEach { callback(it) }
