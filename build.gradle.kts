@@ -83,7 +83,7 @@ subprojects {
         implementation("org.jsoup:jsoup:1.23.2")
         implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.22.4")
         implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
-        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
         testImplementation("junit:junit:4.13.2")
         testImplementation(kotlin("test"))
