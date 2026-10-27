@@ -1,10 +1,10 @@
 [
     {
         "iconUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/512px-YouTube_full-color_icon_%282017%29.svg.png",
-        "fileHash": "sha256-042ee8af92e66478524ddbae354dd15569ed1d48397af573e9aa200b28212d96",
+        "fileHash": "sha256-d73c9b8de77471796483a6e5553ee406fd62af3f4462c993a6dd4979b6c2f32b",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/dwaraa/YT-CS3",
-        "fileSize": 121676,
+        "fileSize": 125675,
         "status": 1,
         "language": "en",
         "authors": [
