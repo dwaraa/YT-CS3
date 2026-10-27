@@ -21,14 +21,35 @@ A high-performance **CloudStream 3** provider plugin for **YouTube**, powered by
   - **Dedicated Channel Rows (`Channel: <Name>`)**: Each subscribed channel can have its own dedicated horizontal row on your home screen.
 - **Interactive In-App Settings UI**:
   - Access via **Settings > Extensions > YouTube (Gear Icon)**.
-  - **➕ Add Subscribed Channel**: Enter any channel handle (e.g., `@MrBeast`, `@mkbhd`), channel URL, or channel ID. The plugin resolves channel details and high-res avatars dynamically at runtime.
+  - **➕ Add Subscribed Channel**: Enter any channel handle (e.g., `@MrBeast`, `@mkbhd`), channel URL, or channel ID.
+  - **📥 Import Subscriptions**: Migrate subscriptions in seconds from **NewPipe JSON**, **Google Takeout CSV**, or **OPML XML** with one-tap clipboard paste.
+  - **📤 Export Subscriptions**: Backup and transfer subscriptions as NewPipe JSON or Takeout CSV.
+  - **👁️ Unwatched Only**: Toggle to hide watched videos from your subscription feed with an "All caught up" indicator.
+  - **⚡ Shorts Handling**: Choose between dedicated Shorts row (`YouTube Shorts ⚡`), inline feeds, or hiding shorts entirely.
+  - **🌍 Region & Language**: Select your country and preferred language for trending and popular feeds.
+  - **🔢 Row Customization**: Reorder home rows and adjust per-row item limits (10 to 40 items).
   - **📋 Manage Subscriptions**: View and delete subscribed channels.
-  - **🎛️ Customize Home Rows**: Toggle any row on or off (Combined Subscriptions, Channel Rows, Trending, Movies & Shows, Music, Gaming, Podcasts, Live Streams).
   - **🔄 Reset to Defaults**: Restore default configuration.
 
-### 👤 Channel as Actor / Person Integration
-- **Actors / Channels**: Videos link the uploader as a person/channel with their avatar.
-- Clicking on a channel or searching by channel name/handle immediately opens the channel page, showing all uploaded videos as playable episodes.
+### 👥 Multi-Tab Channel Exploration (Stage 4)
+- **Channel Tabs as Seasons**: When browsing any channel, all available tabs are organized into seasons:
+  - **Season 1**: Videos (long-form uploads)
+  - **Season 2**: Shorts (`⚡` vertical videos)
+  - **Season 3**: Live Streams (`🔴` ongoing and past broadcasts)
+  - **Season 4**: Playlists (`📋` channel playlists)
+
+### 🔍 Search Filters & Real-Time Suggestions (Stage 4)
+- **Search Filters**: Filter searches directly using intuitive syntax:
+  - `type:video`, `type:channel`, `type:playlist`, `type:shorts`
+  - `sort:date`, `sort:views`, `sort:rating`, `sort:relevance`
+  - `duration:short` (<4m), `duration:medium` (4-20m), `duration:long` (>20m)
+- **Search Suggestions**: Instant query completions powered by NewPipe's search suggestion engine.
+- **Search History**: Recent search queries are saved locally with one-tap history clearing.
+
+### 📖 Rich Video Details & Chapters (Stage 4)
+- **Video Statistics**: Displays formatted view counts (`👁️ 1.2M views`), likes (`👍 85K likes`), and exact upload dates.
+- **Chapter Markers**: Formatted chapter timestamps (`02:15 - Chapter Title`) rendered right in the video description.
+- **Metadata**: Category tags, upload year, and channel subscriber count.
 
 ### 🎵 Video & Audio Playback Quality (Stage 2)
 - **Adaptive 1080p / 1440p (2K) / 4K (2160p) with Audio**:
@@ -97,7 +118,7 @@ YT-CS3/
 │       ├── gradle-wrapper.jar
 │       └── gradle-wrapper.properties
 ├── YouTube/
-│   ├── build.gradle.kts            # Cloudstream plugin metadata (version 4)
+│   ├── build.gradle.kts            # Cloudstream plugin metadata (version 5)
 │   ├── icon.png                    # High-res YouTube provider icon
 │   ├── src/main/java/com/youtube/
 │   │   └── AudioHelper.java        # Cross-module Java bridge for AudioFile multi-source playback
@@ -116,15 +137,20 @@ YT-CS3/
 │   │   │   └── YoutubeLoaders.kt       # Video, channel, and playlist loaders with pagination
 │   │   ├── search/
 │   │   │   └── YoutubeSearchHandler.kt # Multi-page catalog search and quick search
+│   │   ├── subscription/
+│   │   │   └── YoutubeSubscriptionImporter.kt # Importer/exporter (NewPipe JSON, CSV, OPML)
 │   │   └── ui/
 │   │       ├── SettingsTheme.kt        # Color tokens, drawables, and avatar bitmap cache
 │   │       ├── SettingsComponents.kt   # Reusable UI cards, switches, rows, and picker modals
-│   │       └── SubscriptionDialogs.kt  # Channel search/addition and subscription management
+│   │       ├── SettingsContentSection.kt # Content and search settings cards
+│   │       └── SubscriptionDialogs.kt  # Subscription import/export & channel management
 │   └── src/test/kotlin/com/youtube/
 │       ├── YoutubeUrlUtilsTest.kt      # URL and handle parsing, video ID sanitation tests
 │       ├── YoutubeQualityTest.kt       # Numeric quality parsing and matching tests
 │       ├── YoutubeDateParserTest.kt    # Relative upload date parsing and sorting tests
-│       └── YoutubePreferencesTest.kt   # Typed settings and SubscribedChannel JSON tests
+│       ├── YoutubePreferencesTest.kt   # Typed settings and SubscribedChannel JSON tests
+│       ├── YoutubeSearchHandlerTest.kt # Search filter query parsing tests
+│       └── YoutubeSubscriptionImporterTest.kt # Subscription import & export tests
 ├── build.gradle.kts                # Root Gradle configuration with testOptions & coroutines
 ├── settings.gradle.kts             # Gradle multi-project settings
 ├── gradle.properties               # JVM and compiler tuning

@@ -10,9 +10,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- Search filters (sort by date, duration, upload date, view count).
 - SponsorBlock integration for skipping sponsor segments.
 - Return YouTube Dislike (RYD) API integration.
+
+---
+
+## [1.4.0] - 2026-10-27
+
+### Added
+- **Subscription Migration (Import & Export)**:
+  - Full support for importing subscriptions from **NewPipe JSON** (standard backup format or raw array), **Google Takeout CSV** (`Channel Id,Channel Url,Channel Title`), and **OPML XML** (RSS subscriptions outline).
+  - Automatic format detection with one-tap clipboard paste integration and duplicate channel prevention.
+  - Subscriptions export dialog with options for NewPipe JSON (full backup) and Google Takeout CSV with direct clipboard copying.
+- **Watch Progress & "Unwatched Only" Filter**:
+  - Leverages CloudStream's native Room database resume watching status (`DataStoreHelper.getViewResume`) to detect completed videos.
+  - Added "Unwatched Only" toggle in Settings to filter out watched videos from subscription feeds, with an "All caught up!" indicator when complete.
+  - Independent watched tracking set with option to clear watch history.
+- **Shorts Handling Options**:
+  - Three customizable modes: **Show in feeds** (inline), **Dedicated Shorts row** (`YouTube Shorts ⚡` home row), and **Hide all Shorts**.
+  - Dynamic shorts detection via `isShortFormContent()`, `#shorts` tag, vertical aspect, and URL patterns.
+- **Multi-Tab Channel Browsing**:
+  - Channels now expose distinct tabs mapped directly to CloudStream seasons:
+    - **Season 1**: Videos
+    - **Season 2**: Shorts (`⚡`)
+    - **Season 3**: Live Streams (`🔴`)
+    - **Season 4**: Playlists (`📋`)
+  - Enables full channel catalog exploration directly from CloudStream's season selector dropdown.
+- **Search Filters, Suggestions & History**:
+  - Structured query filter parsing: inline filter syntax for `type:video`, `type:channel`, `type:playlist`, `type:shorts`, `sort:date`, `sort:views`, `sort:rating`, and `duration:short|medium|long`.
+  - Default search content filter and sort order preferences in Settings.
+  - Real-time search suggestions via NewPipe's `suggestionList` and persistent 20-item search query history.
+- **Richer Video Details**:
+  - Streamlined presentation of view counts (`1.4M views`), likes (`45K likes`), and textual upload dates formatted neatly in video headers.
+  - Chapter markers parsed from `streamSegments` and rendered with formatted timestamps (`02:15 - Chapter Title`) in descriptions.
+  - Genre tags enriched with video category and topic keywords.
+- **Feed Customization & Personalization**:
+  - Configurable per-row item limits (10, 15, 20, 25, 30, 40 videos per row).
+  - Home feed row reordering supporting all feed types.
+  - Region selection for Trending feeds (US, GB, IN, CA, DE, FR, JP, BR, AU, KR, MX, IT).
+  - Content language localization (en, es, hi, fr, de, ja, ko, pt, ar).
+- **Unit Testing**:
+  - Added unit test suites for `YoutubeSubscriptionImporterTest` (5 tests) and `YoutubeSearchHandlerTest` (3 tests), bringing total passing unit tests to 21 across 6 test suites.
 
 ---
 

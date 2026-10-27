@@ -119,6 +119,11 @@ class YoutubeProvider : MainAPI() {
         return YoutubeSearchHandler.quickSearch(this, query)
     }
 
+    fun getSearchSuggestions(query: String): List<String> {
+        ensureDownloaderInitialized()
+        return YoutubeSearchHandler.getSearchSuggestions(query)
+    }
+
     override suspend fun load(url: String): LoadResponse {
         ensureDownloaderInitialized()
         val cleanUrl = YoutubeLoaders.sanitizeUrl(url)

@@ -3,6 +3,7 @@ package com.youtube.feed
 import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.youtube.HomeRowType
+import com.youtube.ShortsMode
 import com.youtube.SubscribedChannel
 import com.youtube.YoutubePreferences
 import com.youtube.extractor.YoutubeEpisodeMapper
@@ -16,6 +17,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.kiosk.KioskExtractor
+import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.util.concurrent.ConcurrentHashMap
 
@@ -29,6 +31,8 @@ class YoutubeFeedHandler(
 
         private val channelVideosCache = ConcurrentHashMap<String, Pair<Long, List<SearchResponse>>>()
         private var combinedSubCache: Pair<Long, List<SearchResponse>>? = null
+        private var shortsFeedCache: Pair<Long, List<SearchResponse>>? = null
+        private val cachedShortsPool = ConcurrentHashMap.newKeySet<StreamInfoItem>()
 
         private val failedChannelsCache = ConcurrentHashMap<String, Pair<Long, String>>()
         private const val FAILURE_BACKOFF_MS = 60 * 1000L
@@ -36,6 +40,8 @@ class YoutubeFeedHandler(
         fun clearFeedCache() {
             channelVideosCache.clear()
             combinedSubCache = null
+            shortsFeedCache = null
+            cachedShortsPool.clear()
             failedChannelsCache.clear()
             Log.d(TAG, "In-memory feed caches cleared")
         }
@@ -52,52 +58,61 @@ class YoutubeFeedHandler(
 
     fun getCustomHomeRows(): List<MainPageData> {
         val rows = mutableListOf<MainPageData>()
+        val rowOrder = YoutubePreferences.getRowOrder()
 
-        // 1. Combined Subscriptions Row
-        if (YoutubePreferences.isRowEnabled(HomeRowType.COMBINED_SUBSCRIPTIONS)) {
-            val subCount = YoutubePreferences.getSubscribedChannels().size
-            val label = if (subCount > 0) "Subscribed: Latest Videos ($subCount Channels)" else "Subscribed: Latest Videos"
-            rows.add(
-                MainPageData(
-                    name = label,
-                    data = "feed:subscriptions_combined",
-                    horizontalImages = true
-                )
-            )
-        }
+        for (rowType in rowOrder) {
+            if (!YoutubePreferences.isRowEnabled(rowType)) continue
 
-        // 2. Individual Rows for Each Subscribed Channel
-        if (YoutubePreferences.isRowEnabled(HomeRowType.INDIVIDUAL_CHANNELS)) {
-            val subscribedChannels = YoutubePreferences.getSubscribedChannels()
-            for (channel in subscribedChannels) {
-                rows.add(
-                    MainPageData(
-                        name = "Channel: ${channel.name}",
-                        data = "feed:channel:${channel.url}",
-                        horizontalImages = true
+            when (rowType) {
+                HomeRowType.COMBINED_SUBSCRIPTIONS -> {
+                    val subCount = YoutubePreferences.getSubscribedChannels().size
+                    val unwatchedSuffix = if (YoutubePreferences.hideWatchedInSubscriptions) " • Unwatched Only" else ""
+                    val label = if (subCount > 0) {
+                        "Subscribed: Latest Videos ($subCount Channels$unwatchedSuffix)"
+                    } else {
+                        "Subscribed: Latest Videos"
+                    }
+                    rows.add(
+                        MainPageData(
+                            name = label,
+                            data = "feed:subscriptions_combined",
+                            horizontalImages = true
+                        )
                     )
-                )
-            }
-        }
+                }
 
-        // 3. Built-in Category Rows
-        if (YoutubePreferences.isRowEnabled(HomeRowType.TRENDING)) {
-            rows.add(MainPageData("Trending", "kiosk:Trending", horizontalImages = true))
-        }
-        if (YoutubePreferences.isRowEnabled(HomeRowType.MOVIES_AND_SHOWS)) {
-            rows.add(MainPageData("Movies & Shows", "kiosk:trending_movies_and_shows", horizontalImages = true))
-        }
-        if (YoutubePreferences.isRowEnabled(HomeRowType.MUSIC)) {
-            rows.add(MainPageData("Music", "kiosk:trending_music", horizontalImages = true))
-        }
-        if (YoutubePreferences.isRowEnabled(HomeRowType.GAMING)) {
-            rows.add(MainPageData("Gaming", "kiosk:trending_gaming", horizontalImages = true))
-        }
-        if (YoutubePreferences.isRowEnabled(HomeRowType.PODCASTS)) {
-            rows.add(MainPageData("Podcasts", "kiosk:trending_podcasts_episodes", horizontalImages = true))
-        }
-        if (YoutubePreferences.isRowEnabled(HomeRowType.LIVE_STREAMS)) {
-            rows.add(MainPageData("Live Streams", "kiosk:live", horizontalImages = true))
+                HomeRowType.SHORTS -> {
+                    if (YoutubePreferences.shortsMode != ShortsMode.HIDE) {
+                        rows.add(
+                            MainPageData(
+                                name = "YouTube Shorts ⚡",
+                                data = "feed:shorts",
+                                horizontalImages = false
+                            )
+                        )
+                    }
+                }
+
+                HomeRowType.INDIVIDUAL_CHANNELS -> {
+                    val subscribedChannels = YoutubePreferences.getSubscribedChannels()
+                    for (channel in subscribedChannels) {
+                        rows.add(
+                            MainPageData(
+                                name = "Channel: ${channel.name}",
+                                data = "feed:channel:${channel.url}",
+                                horizontalImages = true
+                            )
+                        )
+                    }
+                }
+
+                HomeRowType.TRENDING -> rows.add(MainPageData("Trending (${YoutubePreferences.trendingRegion})", "kiosk:Trending", horizontalImages = true))
+                HomeRowType.MOVIES_AND_SHOWS -> rows.add(MainPageData("Movies & Shows", "kiosk:trending_movies_and_shows", horizontalImages = true))
+                HomeRowType.MUSIC -> rows.add(MainPageData("Music", "kiosk:trending_music", horizontalImages = true))
+                HomeRowType.GAMING -> rows.add(MainPageData("Gaming", "kiosk:trending_gaming", horizontalImages = true))
+                HomeRowType.PODCASTS -> rows.add(MainPageData("Podcasts", "kiosk:trending_podcasts_episodes", horizontalImages = true))
+                HomeRowType.LIVE_STREAMS -> rows.add(MainPageData("Live Streams", "kiosk:live", horizontalImages = true))
+            }
         }
 
         if (rows.isEmpty()) {
@@ -118,13 +133,18 @@ class YoutubeFeedHandler(
             return getCombinedSubscriptionsFeed(request.name)
         }
 
-        // B. Individual Channel Row
+        // B. Shorts Feed
+        if (dataKey == "feed:shorts") {
+            return getShortsFeed(request.name)
+        }
+
+        // C. Individual Channel Row
         if (dataKey.startsWith("feed:channel:")) {
             val channelUrl = dataKey.removePrefix("feed:channel:")
             return getSingleChannelFeed(request.name, channelUrl)
         }
 
-        // C. Standard NewPipe Kiosks
+        // D. Standard NewPipe Kiosks
         val kioskId = dataKey.removePrefix("kiosk:")
         if (page == 1) mainPagePaginationCache.remove(dataKey)
 
@@ -145,22 +165,21 @@ class YoutubeFeedHandler(
         } catch (e: Exception) {
             val err = errorHandler(e)
             Log.e(TAG, "Failed to load kiosk '$dataKey': $err", e)
-            val errorItem = with(mainApi) {
-                newMovieSearchResponse(
-                    name = "⚠️ Couldn't load ${request.name} ($err)",
-                    url = "https://www.youtube.com",
-                    type = TvType.Others
-                ) {
-                    this.posterUrl = defaultIcon
-                }
-            }
+            val errorItem = createInfoCard("⚠️ Couldn't load ${request.name} ($err)")
             return newHomePageResponse(
                 listOf(HomePageList(request.name, listOf(errorItem), isHorizontalImages = true)),
                 false
             )
         }
 
-        val results = pageData.items.mapNotNull { YoutubeEpisodeMapper.toSearchResponse(mainApi, it) }
+        val rowLimit = YoutubePreferences.itemsPerRowLimit
+        var streamItems = pageData.items.filterIsInstance<StreamInfoItem>()
+
+        if (YoutubePreferences.shortsMode == ShortsMode.HIDE) {
+            streamItems = streamItems.filterNot { YoutubeEpisodeMapper.isShort(it) }
+        }
+
+        val results = streamItems.take(rowLimit).mapNotNull { YoutubeEpisodeMapper.toSearchResponse(mainApi, it) }
 
         val headerName = try {
             extractor.name.ifEmpty { request.name }
@@ -181,6 +200,55 @@ class YoutubeFeedHandler(
         )
     }
 
+    private suspend fun getShortsFeed(headerTitle: String): HomePageResponse {
+        val now = System.currentTimeMillis()
+        val cacheTtl = YoutubePreferences.cacheTtlMs
+        val cached = shortsFeedCache
+
+        if (cached != null && (now - cached.first) < cacheTtl && cached.second.isNotEmpty()) {
+            return newHomePageResponse(
+                listOf(HomePageList(headerTitle, cached.second, isHorizontalImages = false)),
+                hasNext = false
+            )
+        }
+
+        val shortsItems = mutableListOf<SearchResponse>()
+        val rowLimit = YoutubePreferences.itemsPerRowLimit
+
+        // 1. From recently discovered shorts in subscriptions pool
+        for (item in cachedShortsPool) {
+            YoutubeEpisodeMapper.toSearchResponse(mainApi, item)?.let { shortsItems.add(it) }
+            if (shortsItems.size >= rowLimit) break
+        }
+
+        // 2. If pool is sparse, fetch trending shorts via search
+        if (shortsItems.size < 10) {
+            try {
+                val searchExtractor = service.getSearchExtractor("#shorts")
+                searchExtractor.fetchPage()
+                val discovered = searchExtractor.initialPage.items
+                    .filterIsInstance<StreamInfoItem>()
+                    .filter { YoutubeEpisodeMapper.isShort(it) }
+                    .mapNotNull { YoutubeEpisodeMapper.toSearchResponse(mainApi, it) }
+                shortsItems.addAll(discovered)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load trending shorts: ${e.message}")
+            }
+        }
+
+        val capped = YoutubeEpisodeMapper.deduplicateAndCap(shortsItems, rowLimit)
+        if (capped.isNotEmpty()) {
+            shortsFeedCache = Pair(now, capped)
+        }
+
+        val finalItems = capped.ifEmpty { listOf(createInfoCard("⚡ No Shorts Available")) }
+
+        return newHomePageResponse(
+            listOf(HomePageList(headerTitle, finalItems, isHorizontalImages = false)),
+            hasNext = false
+        )
+    }
+
     private suspend fun getCombinedSubscriptionsFeed(headerTitle: String): HomePageResponse {
         val now = System.currentTimeMillis()
         val cacheTtl = YoutubePreferences.cacheTtlMs
@@ -195,23 +263,9 @@ class YoutubeFeedHandler(
 
         val channels = YoutubePreferences.getSubscribedChannels()
         if (channels.isEmpty()) {
-            val placeholder = with(mainApi) {
-                newMovieSearchResponse(
-                    name = "ℹ️ No Subscribed Channels (Tap Settings ⚙️ to add channels)",
-                    url = "https://www.youtube.com",
-                    type = TvType.Others
-                ) {
-                    this.posterUrl = defaultIcon
-                }
-            }
+            val placeholder = createInfoCard("ℹ️ No Subscribed Channels (Tap Settings ⚙️ to add channels)")
             return newHomePageResponse(
-                listOf(
-                    HomePageList(
-                        "$headerTitle (Empty)",
-                        listOf(placeholder),
-                        isHorizontalImages = true
-                    )
-                ),
+                listOf(HomePageList("$headerTitle (Empty)", listOf(placeholder), isHorizontalImages = true)),
                 hasNext = false
             )
         }
@@ -241,14 +295,38 @@ class YoutubeFeedHandler(
 
         val flatItems = rawItemsFromChannels.flatten()
 
-        val sortedItems = flatItems.sortedByDescending {
+        // Cache any discovered shorts into the shorts pool
+        for (item in flatItems) {
+            if (YoutubeEpisodeMapper.isShort(item)) {
+                cachedShortsPool.add(item)
+            }
+        }
+
+        // Apply Shorts filtering
+        val shortsMode = YoutubePreferences.shortsMode
+        val filteredByShorts = when (shortsMode) {
+            ShortsMode.HIDE -> flatItems.filterNot { YoutubeEpisodeMapper.isShort(it) }
+            ShortsMode.SEPARATE_ROW -> flatItems.filterNot { YoutubeEpisodeMapper.isShort(it) }
+            ShortsMode.SHOW_INLINE -> flatItems
+        }
+
+        val sortedItems = filteredByShorts.sortedByDescending {
             YoutubeEpisodeMapper.extractUploadEpochMs(it, now)
         }
 
-        val searchResponses = sortedItems.mapNotNull { YoutubeEpisodeMapper.toSearchResponse(mainApi, it) }
+        var searchResponses = sortedItems.mapNotNull { YoutubeEpisodeMapper.toSearchResponse(mainApi, it) }
+
+        // Apply "Hide Watched / Unwatched Only" filter
+        val hideWatched = YoutubePreferences.hideWatchedInSubscriptions
+        if (hideWatched) {
+            searchResponses = searchResponses.filterNot { YoutubePreferences.isWatched(it.url) }
+        }
+
+        val rowLimit = YoutubePreferences.itemsPerRowLimit.coerceAtLeast(10)
+        val maxLimit = minOf(rowLimit, YoutubePreferences.maxCombinedVideos)
         val cappedItems = YoutubeEpisodeMapper.deduplicateAndCap(
             searchResponses,
-            YoutubePreferences.maxCombinedVideos
+            maxLimit
         )
 
         if (cappedItems.isNotEmpty()) {
@@ -256,17 +334,12 @@ class YoutubeFeedHandler(
         }
 
         val finalItems = if (cappedItems.isEmpty()) {
-            listOf(
-                with(mainApi) {
-                    newMovieSearchResponse(
-                        name = "⚠️ Couldn't load latest uploads (Tap to retry)",
-                        url = "https://www.youtube.com",
-                        type = TvType.Others
-                    ) {
-                        this.posterUrl = defaultIcon
-                    }
-                }
-            )
+            val emptyMsg = if (hideWatched && sortedItems.isNotEmpty()) {
+                "✅ All Caught Up! (All latest videos watched • Tap Settings to toggle)"
+            } else {
+                "⚠️ Couldn't load latest uploads (Tap to retry)"
+            }
+            listOf(createInfoCard(emptyMsg))
         } else {
             cappedItems
         }
@@ -284,32 +357,25 @@ class YoutubeFeedHandler(
     }
 
     private suspend fun getSingleChannelFeed(headerTitle: String, channelUrl: String): HomePageResponse {
-        val items = fetchRecentChannelVideos(channelUrl, limit = 25)
+        val limit = YoutubePreferences.itemsPerRowLimit
+        var items = fetchRecentChannelVideos(channelUrl, limit = limit)
         val channelName = headerTitle.removePrefix("Channel: ").trim()
+
+        if (YoutubePreferences.shortsMode == ShortsMode.HIDE) {
+            items = items.filterNot { YoutubeEpisodeMapper.isShortUrl(it.url) }
+        }
+
+        if (YoutubePreferences.hideWatchedInSubscriptions) {
+            items = items.filterNot { YoutubePreferences.isWatched(it.url) }
+        }
 
         if (items.isEmpty()) {
             val failureInfo = failedChannelsCache[channelUrl]
-            val reason = failureInfo?.second ?: "Channel returned no videos"
+            val reason = failureInfo?.second ?: "No videos or all watched"
             Log.w(TAG, "Single channel feed empty for $channelUrl. Reason: $reason")
-
-            val retryCard = with(mainApi) {
-                newMovieSearchResponse(
-                    name = "⚠️ Couldn't load $channelName ($reason) - Tap to retry",
-                    url = channelUrl,
-                    type = TvType.Others
-                ) {
-                    this.posterUrl = defaultIcon
-                }
-            }
-
+            val retryCard = createInfoCard("⚠️ $channelName ($reason)", channelUrl)
             return newHomePageResponse(
-                listOf(
-                    HomePageList(
-                        headerTitle,
-                        listOf(retryCard),
-                        isHorizontalImages = true
-                    )
-                ),
+                listOf(HomePageList(headerTitle, listOf(retryCard), isHorizontalImages = true)),
                 hasNext = false
             )
         }
@@ -373,7 +439,7 @@ class YoutubeFeedHandler(
 
         val cached = channelVideosCache[channelUrl]
         if (cached != null && (now - cached.first) < cacheTtl && cached.second.isNotEmpty()) {
-            return cached.second
+            return cached.second.take(limit)
         }
 
         val rawItems = fetchChannelRawStreamItems(channelUrl, limit)
@@ -385,11 +451,28 @@ class YoutubeFeedHandler(
         return list
     }
 
+    private fun createInfoCard(title: String, url: String = "https://www.youtube.com"): SearchResponse {
+        return with(mainApi) {
+            newMovieSearchResponse(name = title, url = url, type = TvType.Others).apply {
+                this.posterUrl = defaultIcon
+            }
+        }
+    }
+
     private fun getKioskExtractor(kioskId: String?): KioskExtractor<out InfoItem> {
+        val localization = try {
+            Localization(
+                YoutubePreferences.contentLanguage,
+                YoutubePreferences.trendingRegion
+            )
+        } catch (_: Throwable) {
+            null
+        }
+
         return if (kioskId.isNullOrBlank()) {
-            service.kioskList.getDefaultKioskExtractor(null)
+            service.kioskList.getDefaultKioskExtractor(null, localization)
         } else {
-            service.kioskList.getExtractorById(kioskId, null)
+            service.kioskList.getExtractorById(kioskId, null, localization)
         }
     }
 }

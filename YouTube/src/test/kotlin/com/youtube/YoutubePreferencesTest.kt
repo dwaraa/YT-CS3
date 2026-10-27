@@ -32,13 +32,36 @@ class YoutubePreferencesTest {
 
     @Test
     fun testHomeRowTypeEnumDefaults() {
-        assertEquals(8, HomeRowType.entries.size)
+        assertEquals(9, HomeRowType.entries.size)
         assertTrue(HomeRowType.COMBINED_SUBSCRIPTIONS.defaultEnabled)
+        assertTrue(HomeRowType.SHORTS.defaultEnabled)
         assertTrue(HomeRowType.INDIVIDUAL_CHANNELS.defaultEnabled)
         assertTrue(HomeRowType.TRENDING.defaultEnabled)
 
         val fromKey = HomeRowType.fromPrefKey("show_trending")
         assertNotNull(fromKey)
         assertEquals(HomeRowType.TRENDING, fromKey)
+
+        val fromShortsKey = HomeRowType.fromPrefKey("show_shorts")
+        assertNotNull(fromShortsKey)
+        assertEquals(HomeRowType.SHORTS, fromShortsKey)
+    }
+
+    @Test
+    fun testStage4Enums() {
+        assertEquals(ShortsMode.SHOW_INLINE, ShortsMode.fromPrefValue("inline"))
+        assertEquals(ShortsMode.SEPARATE_ROW, ShortsMode.fromPrefValue("separate_row"))
+        assertEquals(ShortsMode.HIDE, ShortsMode.fromPrefValue("hide"))
+        assertEquals(ShortsMode.SHOW_INLINE, ShortsMode.fromPrefValue(null))
+
+        assertEquals(SearchContentFilter.ALL, SearchContentFilter.fromPrefValue("all"))
+        assertEquals(SearchContentFilter.VIDEOS_ONLY, SearchContentFilter.fromPrefValue("videos"))
+        assertEquals(SearchContentFilter.CHANNELS_ONLY, SearchContentFilter.fromPrefValue("channels"))
+        assertEquals(SearchContentFilter.PLAYLISTS_ONLY, SearchContentFilter.fromPrefValue("playlists"))
+
+        assertEquals(SearchSortOrder.RELEVANCE, SearchSortOrder.fromPrefValue("relevance"))
+        assertEquals(SearchSortOrder.UPLOAD_DATE, SearchSortOrder.fromPrefValue("date"))
+        assertEquals(SearchSortOrder.VIEW_COUNT, SearchSortOrder.fromPrefValue("views"))
+        assertEquals(SearchSortOrder.RATING, SearchSortOrder.fromPrefValue("rating"))
     }
 }

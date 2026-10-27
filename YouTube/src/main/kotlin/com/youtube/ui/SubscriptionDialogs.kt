@@ -1,5 +1,8 @@
 package com.youtube.ui
 
+import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
@@ -11,10 +14,12 @@ import android.widget.*
 import com.youtube.SubscribedChannel
 import com.youtube.YoutubePreferences
 import com.youtube.YoutubeProvider
+import com.youtube.subscription.YoutubeSubscriptionImporter
 import com.youtube.ui.SettingsTheme.COLOR_CARD_BORDER
 import com.youtube.ui.SettingsTheme.COLOR_DANGER_BG
 import com.youtube.ui.SettingsTheme.COLOR_DANGER_TEXT
 import com.youtube.ui.SettingsTheme.COLOR_INNER_BG
+import com.youtube.ui.SettingsTheme.COLOR_PRIMARY
 import com.youtube.ui.SettingsTheme.COLOR_RIPPLE
 import com.youtube.ui.SettingsTheme.COLOR_TEXT_MUTED
 import com.youtube.ui.SettingsTheme.COLOR_TEXT_PRIMARY
@@ -204,5 +209,100 @@ object SubscriptionDialogs {
                 onDone()
             }
         }
+    }
+
+    fun showImportDialog(context: Context, onImportComplete: () -> Unit) {
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(context, 16), dp(context, 12), dp(context, 16), dp(context, 8))
+        }
+
+        val desc = TextView(context).apply {
+            text = "Paste your subscriptions data in NewPipe JSON, Google Takeout CSV, or OPML format below:"
+            setTextColor(COLOR_TEXT_SECONDARY)
+            textSize = 12f
+            setPadding(0, 0, 0, dp(context, 8))
+        }
+        root.addView(desc)
+
+        val input = EditText(context).apply {
+            hint = "Paste JSON, CSV, or OPML here..."
+            setHintTextColor(COLOR_TEXT_MUTED)
+            setTextColor(COLOR_TEXT_PRIMARY)
+            textSize = 12f
+            minLines = 6
+            maxLines = 10
+            gravity = Gravity.TOP or Gravity.START
+            background = createRoundedDrawable(COLOR_INNER_BG, 10f, COLOR_CARD_BORDER, 1f, context)
+            setPadding(dp(context, 10), dp(context, 8), dp(context, 10), dp(context, 8))
+        }
+        root.addView(input)
+
+        val pasteBtn = Button(context).apply {
+            text = "📋 Paste from Clipboard"
+            setTextColor(COLOR_PRIMARY)
+            textSize = 11.5f
+            background = createRippleDrawable(context, COLOR_INNER_BG, COLOR_RIPPLE, 8f, COLOR_CARD_BORDER, 1f)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(context, 8) }
+            setOnClickListener {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
+                if (clipText.isNotBlank()) {
+                    input.setText(clipText)
+                    Toast.makeText(context, "Pasted from clipboard", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        root.addView(pasteBtn)
+
+        AlertDialog.Builder(context)
+            .setTitle("Import Subscriptions")
+            .setView(root)
+            .setPositiveButton("Import") { _, _ ->
+                val text = input.text.toString().trim()
+                if (text.isBlank()) {
+                    Toast.makeText(context, "No content provided to import", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val res = YoutubeSubscriptionImporter.detectAndImport(text)
+                if (res.importedChannels.isEmpty()) {
+                    Toast.makeText(context, res.errorMessage ?: "Could not detect channels in input", Toast.LENGTH_LONG).show()
+                } else {
+                    val added = YoutubePreferences.importChannels(res.importedChannels)
+                    Toast.makeText(context, "Imported $added new channels (${res.totalFound} found in ${res.format})!", Toast.LENGTH_LONG).show()
+                    onImportComplete()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    fun showExportDialog(context: Context) {
+        val channels = YoutubePreferences.getSubscribedChannels()
+        if (channels.isEmpty()) {
+            Toast.makeText(context, "No subscriptions to export", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val options = arrayOf("NewPipe JSON (Full Backup)", "Google Takeout CSV")
+        AlertDialog.Builder(context)
+            .setTitle("Export Subscriptions (${channels.size} channels)")
+            .setItems(options) { _, which ->
+                val exportedText = when (which) {
+                    0 -> YoutubeSubscriptionImporter.exportToNewPipeJson(channels)
+                    else -> YoutubeSubscriptionImporter.exportToTakeoutCsv(channels)
+                }
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                val clip = ClipData.newPlainText("YouTube Subscriptions", exportedText)
+                clipboard?.setPrimaryClip(clip)
+                Toast.makeText(context, "✅ Copied ${channels.size} subscriptions to clipboard as ${options[which]}!", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 }

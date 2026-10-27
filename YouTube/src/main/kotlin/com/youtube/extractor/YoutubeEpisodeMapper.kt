@@ -21,6 +21,21 @@ object YoutubeEpisodeMapper {
         Pattern.CASE_INSENSITIVE
     )
 
+    fun isShort(item: StreamInfoItem): Boolean {
+        if (item.url?.contains("/shorts/") == true) return true
+        try {
+            if (item.isShortFormContent) return true
+        } catch (_: Throwable) {}
+        if (item.duration in 1..61 && item.name?.contains("#shorts", ignoreCase = true) == true) {
+            return true
+        }
+        return false
+    }
+
+    fun isShortUrl(url: String): Boolean {
+        return url.contains("/shorts/")
+    }
+
     fun toSearchResponse(api: MainAPI, item: InfoItem): SearchResponse? {
         val itemUrl = item.url ?: return null
         val itemName = item.name ?: "Unknown"
@@ -57,7 +72,7 @@ object YoutubeEpisodeMapper {
         }
     }
 
-    fun toEpisode(api: MainAPI, item: InfoItem, episodeNum: Int? = null): Episode {
+    fun toEpisode(api: MainAPI, item: InfoItem, episodeNum: Int? = null, seasonNum: Int? = null): Episode {
         val itemUrl = item.url ?: ""
         val itemName = item.name ?: "Unknown Video"
         val thumb = item.thumbnails.lastOrNull()?.url
@@ -70,7 +85,37 @@ object YoutubeEpisodeMapper {
                 if (episodeNum != null) {
                     this.episode = episodeNum
                 }
+                if (seasonNum != null) {
+                    this.season = seasonNum
+                }
             }
+        }
+    }
+
+    /**
+     * Formats large view/like counts into readable strings (e.g. 1.2M, 450K).
+     */
+    fun formatCount(count: Long): String {
+        return when {
+            count >= 1_000_000_000 -> String.format("%.1fB", count / 1_000_000_000.0)
+            count >= 1_000_000 -> String.format("%.1fM", count / 1_000_000.0)
+            count >= 1_000 -> String.format("%.1fK", count / 1_000.0)
+            count > 0 -> count.toString()
+            else -> ""
+        }
+    }
+
+    /**
+     * Formats seconds into HH:MM:SS or MM:SS chapter timestamps.
+     */
+    fun formatSecondsToTimestamp(seconds: Int): String {
+        val h = seconds / 3600
+        val m = (seconds % 3600) / 60
+        val s = seconds % 60
+        return if (h > 0) {
+            String.format("%d:%02d:%02d", h, m, s)
+        } else {
+            String.format("%02d:%02d", m, s)
         }
     }
 

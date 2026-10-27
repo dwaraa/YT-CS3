@@ -1,5 +1,6 @@
 package com.youtube.loader
 
+import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.youtube.YoutubePreferences
 import com.youtube.extractor.YoutubeEpisodeMapper
@@ -79,12 +80,49 @@ object YoutubeLoaders {
             }
         } else ""
 
-        val enrichedPlot = when {
-            isUpcoming -> "⏳ Scheduled / Upcoming Live Stream: This broadcast has not started yet. Please check back at the scheduled start time.\n\n$rawDescription"
-            isLiveStream -> "🔴 LIVE NOW: Real-time broadcast\n\n$rawDescription"
-            isPostLive -> "⏹️ Stream Ended: Broadcast has concluded and is being processed by YouTube.\n\n$rawDescription"
-            exactDurationText.isNotBlank() -> "⏱️ Runtime: $exactDurationText\n\n$rawDescription"
-            else -> rawDescription
+        // Rich video details: views, likes, upload date, chapters
+        val viewsText = if (info.viewCount > 0) "👁️ ${YoutubeEpisodeMapper.formatCount(info.viewCount)} views" else ""
+        val likesText = if (info.likeCount > 0) "👍 ${YoutubeEpisodeMapper.formatCount(info.likeCount)} likes" else ""
+        val dateText = info.textualUploadDate?.takeIf { it.isNotBlank() }?.let { "📅 $it" } ?: ""
+
+        val statsLine = listOf(viewsText, likesText, dateText).filter { it.isNotBlank() }.joinToString(" • ")
+
+        val segments = try {
+            info.streamSegments
+        } catch (_: Throwable) {
+            null
+        }
+
+        val chaptersSection = if (!segments.isNullOrEmpty()) {
+            val chapterLines = segments.joinToString("\n") { seg ->
+                val ts = YoutubeEpisodeMapper.formatSecondsToTimestamp(seg.startTimeSeconds)
+                "• $ts ${seg.title ?: "Chapter"}"
+            }
+            "📖 Chapters:\n$chapterLines\n\n"
+        } else ""
+
+        val enrichedPlot = buildString {
+            when {
+                isUpcoming -> append("⏳ Scheduled / Upcoming Live Stream: Broadcast has not started yet.\n\n")
+                isLiveStream -> append("🔴 LIVE NOW: Real-time broadcast\n\n")
+                isPostLive -> append("⏹️ Stream Ended: Broadcast has concluded and is being processed by YouTube.\n\n")
+            }
+            if (statsLine.isNotBlank()) {
+                append("$statsLine\n\n")
+            }
+            if (exactDurationText.isNotBlank()) {
+                append("⏱️ Runtime: $exactDurationText\n\n")
+            }
+            if (chaptersSection.isNotBlank()) {
+                append(chaptersSection)
+            }
+            append(rawDescription)
+        }
+
+        val uploadYear = try {
+            info.uploadDate?.offsetDateTime()?.year
+        } catch (_: Throwable) {
+            null
         }
 
         return with(api) {
@@ -98,6 +136,7 @@ object YoutubeLoaders {
                 this.posterUrl = poster
                 this.backgroundPosterUrl = poster
                 this.duration = durationMinutes
+                this.year = uploadYear
 
                 info.uploaderName?.takeIf { it.isNotBlank() }?.let { uploader ->
                     actors = listOf(
@@ -110,7 +149,10 @@ object YoutubeLoaders {
                     )
                 }
 
-                tags = info.tags?.take(6)?.toList()
+                val allTags = mutableListOf<String>()
+                info.category?.takeIf { it.isNotBlank() }?.let { allTags.add(it) }
+                info.tags?.take(6)?.let { allTags.addAll(it) }
+                this.tags = allTags.distinct()
             }
         }
     }
@@ -128,27 +170,82 @@ object YoutubeLoaders {
             YoutubePreferences.updateChannelAvatar(url, channelAvatar)
         }
 
-        val tabs = extractor.tabs
-        val videosTab = tabs.firstOrNull { it.url.contains("/videos") } ?: tabs.firstOrNull()
-            ?: throw RuntimeException("No videos tab found for channel")
-
-        val videosExtractor = service.getChannelTabExtractor(videosTab)
         val episodes = mutableListOf<Episode>()
+        val tabs = extractor.tabs
 
-        var page = videosExtractor.initialPage
-        episodes.addAll(page.items.mapIndexed { idx, item ->
-            YoutubeEpisodeMapper.toEpisode(api, item, idx + 1)
-        })
+        for (tab in tabs) {
+            val tabUrl = tab.url ?: ""
+            val seasonNum = when {
+                tabUrl.contains("/videos") -> 1
+                tabUrl.contains("/shorts") -> 2
+                tabUrl.contains("/streams") || tabUrl.contains("/live") -> 3
+                tabUrl.contains("/playlists") -> 4
+                else -> continue // Skip /community, /about, etc.
+            }
 
-        var pagesLoaded = 1
-        while (page.hasNextPage() && pagesLoaded < maxPagesToLoad) {
-            page = videosExtractor.getPage(page.nextPage)
-            val currentCount = episodes.size
-            episodes.addAll(page.items.mapIndexed { idx, item ->
-                YoutubeEpisodeMapper.toEpisode(api, item, currentCount + idx + 1)
-            })
-            pagesLoaded++
+            val prefix = when (seasonNum) {
+                1 -> ""
+                2 -> "⚡ "
+                3 -> "🔴 "
+                4 -> "📋 "
+                else -> ""
+            }
+
+            try {
+                val tabExtractor = service.getChannelTabExtractor(tab)
+                tabExtractor.fetchPage()
+
+                var page = tabExtractor.initialPage
+                val tabEpisodes = mutableListOf<Episode>()
+
+                tabEpisodes.addAll(page.items.mapIndexed { idx, item ->
+                    val ep = YoutubeEpisodeMapper.toEpisode(api, item, idx + 1, seasonNum)
+                    if (prefix.isNotEmpty() && !ep.name.isNullOrBlank()) {
+                        ep.name = "$prefix${ep.name}"
+                    }
+                    ep
+                })
+
+                if (seasonNum == 1) {
+                    var pagesLoaded = 1
+                    while (page.hasNextPage() && pagesLoaded < maxPagesToLoad) {
+                        page = tabExtractor.getPage(page.nextPage)
+                        val currentCount = tabEpisodes.size
+                        tabEpisodes.addAll(page.items.mapIndexed { idx, item ->
+                            YoutubeEpisodeMapper.toEpisode(api, item, currentCount + idx + 1, seasonNum)
+                        })
+                        pagesLoaded++
+                    }
+                }
+
+                episodes.addAll(tabEpisodes)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load channel tab '${tab.url}': ${e.message}")
+            }
         }
+
+        // Fallback if no tabs loaded
+        if (episodes.isEmpty()) {
+            val videosTab = tabs.firstOrNull { it.url.contains("/videos") } ?: tabs.firstOrNull()
+            if (videosTab != null) {
+                val videosExtractor = service.getChannelTabExtractor(videosTab)
+                videosExtractor.fetchPage()
+                var page = videosExtractor.initialPage
+                episodes.addAll(page.items.mapIndexed { idx, item ->
+                    YoutubeEpisodeMapper.toEpisode(api, item, idx + 1, 1)
+                })
+            }
+        }
+
+        val subscriberText = if (extractor.subscriberCount > 0) {
+            "${YoutubeEpisodeMapper.formatCount(extractor.subscriberCount)} Subscribers"
+        } else ""
+
+        val channelTags = listOfNotNull(
+            "Channel",
+            subscriberText.takeIf { it.isNotBlank() },
+            "${episodes.size} Total Items"
+        )
 
         return with(api) {
             newTvSeriesLoadResponse(
@@ -160,7 +257,7 @@ object YoutubeLoaders {
                 this.plot = channelDescription
                 this.posterUrl = channelAvatar ?: channelBanner
                 this.backgroundPosterUrl = channelBanner ?: channelAvatar
-                this.tags = listOf("Channel", "${episodes.size} Videos")
+                this.tags = channelTags
                 this.actors = listOf(
                     ActorData(
                         Actor(
@@ -186,7 +283,7 @@ object YoutubeLoaders {
 
         var page = extractor.initialPage
         episodes.addAll(page.items.mapIndexed { idx, item ->
-            YoutubeEpisodeMapper.toEpisode(api, item, idx + 1)
+            YoutubeEpisodeMapper.toEpisode(api, item, idx + 1, 1)
         })
 
         var pagesLoaded = 1
@@ -194,7 +291,7 @@ object YoutubeLoaders {
             page = extractor.getPage(page.nextPage)
             val currentCount = episodes.size
             episodes.addAll(page.items.mapIndexed { idx, item ->
-                YoutubeEpisodeMapper.toEpisode(api, item, currentCount + idx + 1)
+                YoutubeEpisodeMapper.toEpisode(api, item, currentCount + idx + 1, 1)
             })
             pagesLoaded++
         }
@@ -208,7 +305,7 @@ object YoutubeLoaders {
             ) {
                 this.plot = playlistDescription
                 this.posterUrl = playlistThumbnail
-                this.tags = if (uploaderName.isNotBlank()) listOf("Channel: $uploaderName") else listOf("Playlist")
+                this.tags = if (uploaderName.isNotBlank()) listOf("Channel: $uploaderName", "${episodes.size} Videos") else listOf("Playlist", "${episodes.size} Videos")
                 if (uploaderName.isNotBlank()) {
                     this.actors = listOf(
                         ActorData(

@@ -13,6 +13,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.*
 import com.youtube.ui.SettingsComponents
+import com.youtube.ui.SettingsContentSection
 import com.youtube.ui.SettingsTheme
 import com.youtube.ui.SubscriptionDialogs
 
@@ -85,7 +86,7 @@ object YoutubeSettings {
             setTypeface(null, Typeface.BOLD)
         }
         val subtitle = TextView(context).apply {
-            text = "CloudStream Extension • Preferences"
+            text = "CloudStream Extension • Core User Features"
             setTextColor(SettingsTheme.COLOR_TEXT_SECONDARY)
             textSize = 11.5f
         }
@@ -127,7 +128,7 @@ object YoutubeSettings {
         }
         val statusText = TextView(context).apply {
             val subsCount = YoutubePreferences.getSubscribedChannels().size
-            text = "CloudStream Provider Active • $subsCount Channels Subscribed"
+            text = "Active • $subsCount Channels Subscribed • Region: ${YoutubePreferences.trendingRegion}"
             setTextColor(SettingsTheme.COLOR_TEXT_SECONDARY)
             textSize = 11.5f
         }
@@ -136,7 +137,7 @@ object YoutubeSettings {
         root.addView(statusBanner)
 
         val displayHeight = context.resources.displayMetrics.heightPixels
-        val scrollMaxHeight = (displayHeight * 0.76).toInt()
+        val scrollMaxHeight = (displayHeight * 0.78).toInt()
 
         val scrollView = ScrollView(context).apply {
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
@@ -208,7 +209,7 @@ object YoutubeSettings {
         content.addView(playbackCard)
 
         // ==========================================
-        // SECTION 2: SUBSCRIBED CHANNELS
+        // SECTION 2: SUBSCRIBED CHANNELS & MIGRATION
         // ==========================================
         val subsHeader = SettingsComponents.createSectionHeaderWithBadge(
             context = context,
@@ -260,16 +261,53 @@ object YoutubeSettings {
         addBox.addView(addBtn)
         subsCard.addView(addBox)
 
-        val helperText = TextView(context).apply {
-            text = "Channels appear on CloudStream home screen. Add by @handle or link."
-            setTextColor(SettingsTheme.COLOR_TEXT_MUTED)
-            textSize = 11f
+        // Stage 4 Import & Export Bar
+        val updateCountUi = {
+            val newCount = YoutubePreferences.getSubscribedChannels().size
+            subsHeader.second.text = "$newCount"
+            statusText.text = "Active • $newCount Channels Subscribed • Region: ${YoutubePreferences.trendingRegion}"
+        }
+
+        val importExportBox = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = SettingsTheme.dp(context, 12) }
+            ).apply { bottomMargin = SettingsTheme.dp(context, 10) }
         }
-        subsCard.addView(helperText)
+
+        val importBtn = Button(context).apply {
+            text = "📥 Import (NewPipe/Takeout/OPML)"
+            setTextColor(Color.WHITE)
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            background = SettingsTheme.createRippleDrawable(context, Color.parseColor("#222738"), SettingsTheme.COLOR_RIPPLE, 10f, SettingsTheme.COLOR_CARD_BORDER, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = SettingsTheme.dp(context, 6)
+            }
+            setOnClickListener {
+                SubscriptionDialogs.showImportDialog(context) {
+                    SubscriptionDialogs.refreshChannelList(context, channelListContainer, updateCountUi)
+                    updateCountUi()
+                }
+            }
+        }
+        val exportBtn = Button(context).apply {
+            text = "📤 Export"
+            setTextColor(Color.WHITE)
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            background = SettingsTheme.createRippleDrawable(context, Color.parseColor("#222738"), SettingsTheme.COLOR_RIPPLE, 10f, SettingsTheme.COLOR_CARD_BORDER, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.45f).apply {
+                marginStart = SettingsTheme.dp(context, 6)
+            }
+            setOnClickListener {
+                SubscriptionDialogs.showExportDialog(context)
+            }
+        }
+        importExportBox.addView(importBtn)
+        importExportBox.addView(exportBtn)
+        subsCard.addView(importExportBox)
 
         val progressBar = ProgressBar(context, null, android.R.attr.progressBarStyleSmall).apply {
             visibility = View.GONE
@@ -282,12 +320,6 @@ object YoutubeSettings {
             }
         }
         subsCard.addView(progressBar)
-
-        val updateCountUi = {
-            val newCount = YoutubePreferences.getSubscribedChannels().size
-            subsHeader.second.text = "$newCount"
-            statusText.text = "CloudStream Provider Active • $newCount Channels Subscribed"
-        }
 
         addBtn.setOnClickListener {
             val raw = input.text.toString().trim()
@@ -309,15 +341,23 @@ object YoutubeSettings {
         content.addView(subsCard)
 
         // ==========================================
-        // SECTION 3: HOME SCREEN ROWS
+        // SECTION 3: FEED & CONTENT CUSTOMIZATION (STAGE 4)
+        // ==========================================
+        val (contentHeader, contentCard) = SettingsContentSection.buildContentCustomizationCard(context, statusText)
+        content.addView(contentHeader)
+        content.addView(contentCard)
+
+        // ==========================================
+        // SECTION 4: HOME SCREEN FEED ROWS
         // ==========================================
         content.addView(SettingsComponents.createSectionHeader(context, "HOME SCREEN FEED ROWS", "🎛"))
         val homeFeedCard = SettingsComponents.createCardContainer(context)
 
         val rowToggles = listOf(
             Triple(HomeRowType.COMBINED_SUBSCRIPTIONS, "🔔", "Single merged row of all your subscribed channels"),
+            Triple(HomeRowType.SHORTS, "⚡", "Dedicated row of quick vertical YouTube Shorts"),
             Triple(HomeRowType.INDIVIDUAL_CHANNELS, "👥", "Separate dedicated row for each subscribed creator"),
-            Triple(HomeRowType.TRENDING, "🔥", "Popular viral videos worldwide"),
+            Triple(HomeRowType.TRENDING, "🔥", "Popular viral videos in your selected region"),
             Triple(HomeRowType.MOVIES_AND_SHOWS, "🎬", "Free featured YouTube movies and episodes"),
             Triple(HomeRowType.MUSIC, "🎵", "Trending music releases and popular audio tracks"),
             Triple(HomeRowType.GAMING, "🎮", "Top gaming livestreams and game clips"),
@@ -337,12 +377,18 @@ object YoutubeSettings {
         content.addView(homeFeedCard)
 
         // ==========================================
-        // SECTION 4: PERFORMANCE & CACHING
+        // SECTION 5: SEARCH & HISTORY
+        // ==========================================
+        val (searchHeader, searchCard) = SettingsContentSection.buildSearchAndHistoryCard(context)
+        content.addView(searchHeader)
+        content.addView(searchCard)
+
+        // ==========================================
+        // SECTION 6: PERFORMANCE & CACHING
         // ==========================================
         content.addView(SettingsComponents.createSectionHeader(context, "PERFORMANCE & CACHING", "⚡"))
         val cacheCard = SettingsComponents.createCardContainer(context)
 
-        // Configurable Cache TTL Row
         val ttlOptions = arrayOf("1 Minute (Realtime)", "5 Minutes (Default)", "15 Minutes", "30 Minutes", "60 Minutes (Max)")
         val ttlValues = arrayOf(1, 5, 15, 30, 60)
         val currentTtlIndex = ttlValues.indexOf(YoutubePreferences.cacheTtlMinutes).let { if (it >= 0) it else 1 }
@@ -369,7 +415,6 @@ object YoutubeSettings {
         cacheCard.addView(ttlRow)
         cacheCard.addView(SettingsComponents.createDivider(context))
 
-        // Refresh Now / Clear Cache Row
         val refreshNowRow = SettingsComponents.createActionItemRow(
             context = context,
             iconEmoji = "⚡",
@@ -387,7 +432,7 @@ object YoutubeSettings {
         content.addView(cacheCard)
 
         // ==========================================
-        // SECTION 5: MAINTENANCE & RESET
+        // SECTION 7: MAINTENANCE & RESET
         // ==========================================
         content.addView(SettingsComponents.createSectionHeader(context, "MAINTENANCE & RESET", "⚙"))
         val actionsCard = SettingsComponents.createCardContainer(context)
@@ -397,13 +442,13 @@ object YoutubeSettings {
             iconEmoji = "🔄",
             iconBgColor = SettingsTheme.COLOR_DANGER_BG,
             title = "Reset All Settings",
-            description = "Reverts feed rows and subscriptions to initial defaults",
+            description = "Reverts feed rows, regions, and subscriptions to defaults",
             buttonLabel = "Reset",
             buttonColor = SettingsTheme.COLOR_YOUTUBE_RED,
             onClick = {
                 AlertDialog.Builder(context)
                     .setTitle("Reset YouTube Settings?")
-                    .setMessage("This will restore default subscriptions and turn on all home feeds. Are you sure?")
+                    .setMessage("This will restore default subscriptions, reset trending region, and turn on all home feeds. Are you sure?")
                     .setPositiveButton("Reset") { _, _ ->
                         YoutubePreferences.resetToDefaults()
                         SubscriptionDialogs.refreshChannelList(context, channelListContainer, updateCountUi)
@@ -419,7 +464,7 @@ object YoutubeSettings {
         content.addView(actionsCard)
 
         val footer = TextView(context).apply {
-            text = "CloudStream • YouTube Provider v1.3 • Stage 3 Performance Edition"
+            text = "CloudStream • YouTube Provider v1.4 • Stage 4 Core User Features"
             setTextColor(SettingsTheme.COLOR_TEXT_MUTED)
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
