@@ -301,9 +301,12 @@ object YoutubePreferences {
 
     // --- Profile Management ---
 
+    private var inMemoryActiveProfile: String? = null
+
     var activeProfile: String
-        get() = prefs?.getString(KEY_ACTIVE_PROFILE, "Default") ?: "Default"
+        get() = inMemoryActiveProfile ?: prefs?.getString(KEY_ACTIVE_PROFILE, "Default") ?: "Default"
         set(value) {
+            inMemoryActiveProfile = value.trim()
             prefs?.edit()?.putString(KEY_ACTIVE_PROFILE, value.trim())?.apply()
         }
 
@@ -485,10 +488,10 @@ object YoutubePreferences {
     }
 
     val defaultRowOrder: List<HomeRowType> = listOf(
-        HomeRowType.WATCH_LATER,
         HomeRowType.COMBINED_SUBSCRIPTIONS,
         HomeRowType.SUBSCRIBED_CHANNELS,
         HomeRowType.SHORTS,
+        HomeRowType.WATCH_LATER,
         HomeRowType.LOCAL_PLAYLISTS,
         HomeRowType.INDIVIDUAL_CHANNELS,
         HomeRowType.TRENDING,
@@ -637,6 +640,7 @@ object YoutubePreferences {
     }
 
     fun resetToDefaults() {
+        inMemoryActiveProfile = "Default"
         prefs?.edit()?.clear()?.apply()
         seedDefaultsIfEmpty()
         notifyCacheCleared()

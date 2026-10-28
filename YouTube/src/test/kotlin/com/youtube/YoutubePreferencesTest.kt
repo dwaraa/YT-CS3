@@ -32,10 +32,12 @@ class YoutubePreferencesTest {
 
     @Test
     fun testHomeRowTypeEnumDefaults() {
-        assertEquals(10, HomeRowType.entries.size)
+        assertEquals(12, HomeRowType.entries.size)
         assertTrue(HomeRowType.SUBSCRIBED_CHANNELS.defaultEnabled)
         assertTrue(HomeRowType.COMBINED_SUBSCRIPTIONS.defaultEnabled)
         assertTrue(HomeRowType.SHORTS.defaultEnabled)
+        assertTrue(HomeRowType.WATCH_LATER.defaultEnabled)
+        assertTrue(HomeRowType.LOCAL_PLAYLISTS.defaultEnabled)
         assertTrue(HomeRowType.INDIVIDUAL_CHANNELS.defaultEnabled)
         assertTrue(HomeRowType.TRENDING.defaultEnabled)
 

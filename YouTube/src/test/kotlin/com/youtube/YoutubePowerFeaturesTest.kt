@@ -1,13 +1,13 @@
 package com.youtube
 
 import com.youtube.power.DiagnosticsHelper
+import com.youtube.power.LocalPlaylist
 import com.youtube.power.LocalPlaylistHelper
 import com.youtube.power.PlaylistItem
 import com.youtube.power.ReturnYouTubeDislikeHelper
 import com.youtube.power.SponsorBlockHelper
 import com.youtube.power.SponsorSegment
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -21,13 +21,13 @@ class YoutubePowerFeaturesTest {
                 category = "sponsor",
                 actionType = "skip",
                 segment = listOf(15.0, 45.0),
-                UUID = "uuid1"
+                uuid = "uuid1"
             ),
             SponsorSegment(
                 category = "intro",
                 actionType = "skip",
                 segment = listOf(0.0, 10.0),
-                UUID = "uuid2"
+                uuid = "uuid2"
             )
         )
 
@@ -47,7 +47,7 @@ class YoutubePowerFeaturesTest {
                 category = "sponsor",
                 actionType = "skip",
                 segment = listOf(65.0, 95.5),
-                UUID = "seg1"
+                uuid = "seg1"
             )
         )
 
@@ -92,7 +92,7 @@ class YoutubePowerFeaturesTest {
 
         val parsed = ReturnYouTubeDislikeHelper.mapper.readValue(
             sampleJson,
-            ReturnYouTubeDislikeHelper.DislikeData::class.java
+            ReturnYouTubeDislikeHelper.RYDResponse::class.java
         )
 
         assertEquals("dQw4w9WgXcQ", parsed.id)
@@ -104,9 +104,17 @@ class YoutubePowerFeaturesTest {
 
     @Test
     fun testLocalPlaylist_serialization() {
-        val item1 = PlaylistItem("vid1", "Test Video 1", "https://youtube.com/watch?v=vid1", "https://thumb/1.jpg")
-        val item2 = PlaylistItem("vid2", "Test Video 2", "https://youtube.com/watch?v=vid2", "https://thumb/2.jpg")
-        val playlist = LocalPlaylistHelper.LocalPlaylist(
+        val item1 = PlaylistItem(
+            url = "https://youtube.com/watch?v=vid1",
+            title = "Test Video 1",
+            posterUrl = "https://thumb/1.jpg"
+        )
+        val item2 = PlaylistItem(
+            url = "https://youtube.com/watch?v=vid2",
+            title = "Test Video 2",
+            posterUrl = "https://thumb/2.jpg"
+        )
+        val playlist = LocalPlaylist(
             id = "pl_123",
             name = "My Favorites",
             items = listOf(item1, item2)
@@ -119,7 +127,7 @@ class YoutubePowerFeaturesTest {
 
         val deserialized = LocalPlaylistHelper.mapper.readValue(
             json,
-            LocalPlaylistHelper.LocalPlaylist::class.java
+            LocalPlaylist::class.java
         )
         assertEquals("pl_123", deserialized.id)
         assertEquals(2, deserialized.items.size)

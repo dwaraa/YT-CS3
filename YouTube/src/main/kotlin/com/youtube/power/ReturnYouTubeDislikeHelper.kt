@@ -49,7 +49,7 @@ typealias DislikeData = RYDResponse
 object ReturnYouTubeDislikeHelper {
     private const val TAG = "RYDHelper"
     private const val API_BASE = "https://returnyoutubedislikeapi.com/votes"
-    private val mapper = jacksonObjectMapper()
+    val mapper = jacksonObjectMapper()
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(4, TimeUnit.SECONDS)

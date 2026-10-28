@@ -371,7 +371,8 @@ object YoutubeLinkResolver {
         // H. SponsorBlock Subtitle Markers
         if (com.youtube.YoutubePreferences.enableSponsorBlock) {
             try {
-                val videoId = com.youtube.loader.YoutubeLoaders.extractVideoId(info.url ?: "") ?: info.id
+                val videoId = com.youtube.loader.YoutubeLoaders.extractVideoId(info.url ?: "")
+                    ?: com.youtube.loader.YoutubeLoaders.extractVideoId(info.originalUrl ?: "")
                 if (!videoId.isNullOrBlank()) {
                     val sponsorSegments = com.youtube.power.SponsorBlockHelper.getSegments(videoId)
                     val vttDataUrl = com.youtube.power.SponsorBlockHelper.generateWebVttDataUrl(sponsorSegments)

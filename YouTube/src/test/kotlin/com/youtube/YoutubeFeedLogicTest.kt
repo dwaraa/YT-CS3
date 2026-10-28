@@ -47,10 +47,12 @@ class YoutubeFeedLogicTest {
     @Test
     fun testDefaultRowOrderIntegrity() {
         val order = YoutubePreferences.defaultRowOrder
-        assertEquals(10, order.size)
+        assertEquals(12, order.size)
         assertEquals(HomeRowType.COMBINED_SUBSCRIPTIONS, order[0])
         assertEquals(HomeRowType.SUBSCRIBED_CHANNELS, order[1])
         assertTrue(order.contains(HomeRowType.SHORTS))
+        assertTrue(order.contains(HomeRowType.WATCH_LATER))
+        assertTrue(order.contains(HomeRowType.LOCAL_PLAYLISTS))
         assertTrue(order.contains(HomeRowType.TRENDING))
         assertTrue(order.contains(HomeRowType.LIVE_STREAMS))
     }
