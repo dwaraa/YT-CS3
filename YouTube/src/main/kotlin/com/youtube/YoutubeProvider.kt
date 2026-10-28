@@ -28,6 +28,12 @@ class YoutubeProvider : MainAPI() {
         TvType.TvSeries
     )
 
+    init {
+        try {
+            com.youtube.power.SponsorBlockSkipAPI.register()
+        } catch (_: Throwable) {}
+    }
+
     companion object {
         private const val TAG = "YoutubeProvider"
 

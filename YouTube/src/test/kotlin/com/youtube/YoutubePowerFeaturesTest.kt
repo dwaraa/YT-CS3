@@ -60,6 +60,8 @@ class YoutubePowerFeaturesTest {
         assertTrue(vtt.contains("[SponsorBlock] Skip Sponsor"))
     }
 
+
+
     @Test
     fun testReturnYouTubeDislike_formatting() {
         val ryd = RYDResponse(

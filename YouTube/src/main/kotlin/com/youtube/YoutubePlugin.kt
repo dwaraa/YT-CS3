@@ -24,6 +24,13 @@ class YoutubePlugin : Plugin() {
             Log.e(TAG, "Failed to initialize NewPipe extractor: ${e.message}", e)
         }
 
+        // Register SponsorBlock with CloudStream's native player skip button system
+        try {
+            com.youtube.power.SponsorBlockSkipAPI.register()
+        } catch (e: Throwable) {
+            Log.w(TAG, "SponsorBlock registration skipped: ${e.message}")
+        }
+
         // Register the YouTube provider into Cloudstream
         registerMainAPI(YoutubeProvider())
 

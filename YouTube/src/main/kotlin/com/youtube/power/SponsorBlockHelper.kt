@@ -143,5 +143,32 @@ object SponsorBlockHelper {
         val encoded = java.net.URLEncoder.encode(vtt, "UTF-8").replace("+", "%20")
         return "data:text/vtt;charset=utf-8,$encoded"
     }
+
+    /**
+     * Converts SponsorBlock segments into CloudStream native SkipStamps
+     * for displaying the in-player skip button.
+     */
+    fun toSkipStamps(segments: List<SponsorBlockSegment>): List<com.lagradost.cloudstream3.utils.videoskip.SkipStamp> {
+        return segments.mapNotNull { seg ->
+            val startMs = (seg.startSeconds * 1000).toLong()
+            val endMs = (seg.endSeconds * 1000).toLong()
+            if (endMs <= startMs) return@mapNotNull null
+
+            val skipType = when (seg.category.lowercase()) {
+                "intro" -> com.lagradost.cloudstream3.utils.videoskip.SkipType.Intro
+                "outro" -> com.lagradost.cloudstream3.utils.videoskip.SkipType.Ending
+                "preview" -> com.lagradost.cloudstream3.utils.videoskip.SkipType.Preview
+                "recap" -> com.lagradost.cloudstream3.utils.videoskip.SkipType.Recap
+                else -> com.lagradost.cloudstream3.utils.videoskip.SkipType.Intro
+            }
+
+            com.lagradost.cloudstream3.utils.videoskip.SkipStamp(
+                type = skipType,
+                startMs = startMs,
+                endMs = endMs,
+                label = seg.categoryLabel
+            )
+        }
+    }
 }
 
