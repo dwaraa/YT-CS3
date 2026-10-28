@@ -67,6 +67,18 @@ class YoutubeFeedHandler(
             if (!YoutubePreferences.isRowEnabled(rowType)) continue
 
             when (rowType) {
+                HomeRowType.WATCH_LATER -> {
+                    val count = com.youtube.power.LocalPlaylistHelper.getWatchLater().size
+                    val label = if (count > 0) "Watch Later ($count)" else "Watch Later"
+                    rows.add(MainPageData(name = label, data = "feed:watch_later", horizontalImages = true))
+                }
+
+                HomeRowType.LOCAL_PLAYLISTS -> {
+                    val count = com.youtube.power.LocalPlaylistHelper.getAllPlaylists().size
+                    val label = if (count > 0) "Local Playlists ($count)" else "Local Playlists"
+                    rows.add(MainPageData(name = label, data = "feed:local_playlists", horizontalImages = false))
+                }
+
                 HomeRowType.COMBINED_SUBSCRIPTIONS -> {
                     val subCount = YoutubePreferences.getSubscribedChannels().size
                     val unwatchedSuffix = if (YoutubePreferences.hideWatchedInSubscriptions) " • Unwatched Only" else ""
@@ -116,6 +128,14 @@ class YoutubeFeedHandler(
     suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val dataKey = request.data
 
+        if (dataKey == "feed:watch_later") {
+            return getWatchLaterFeed(request.name)
+        }
+
+        if (dataKey == "feed:local_playlists") {
+            return getLocalPlaylistsFeed(request.name)
+        }
+
         if (dataKey == "feed:subscriptions_combined") {
             return getCombinedSubscriptionsFeed(request.name)
         }
@@ -162,6 +182,42 @@ class YoutubeFeedHandler(
 
         val responses = pageData.items.mapNotNull { YoutubeEpisodeMapper.toSearchResponse(mainApi, it) }
         return newHomePageResponse(listOf(HomePageList(request.name, responses, isHorizontalImages = true)), hasNext = pageData.hasNextPage())
+    }
+
+    private suspend fun getWatchLaterFeed(headerTitle: String): HomePageResponse {
+        val items = com.youtube.power.LocalPlaylistHelper.getWatchLater()
+        if (items.isEmpty()) {
+            val placeholder = createInfoCard("Watch Later is empty (Add videos via Settings)")
+            return newHomePageResponse(listOf(HomePageList(headerTitle, listOf(placeholder), isHorizontalImages = true)), hasNext = false)
+        }
+
+        val cards = items.map { item ->
+            with(mainApi) {
+                newMovieSearchResponse(item.title, item.url, TvType.Others) {
+                    this.posterUrl = item.posterUrl.takeIf { it.isNotBlank() } ?: defaultIcon
+                }
+            }
+        }
+        return newHomePageResponse(listOf(HomePageList(headerTitle, cards, isHorizontalImages = true)), hasNext = false)
+    }
+
+    private suspend fun getLocalPlaylistsFeed(headerTitle: String): HomePageResponse {
+        val playlists = com.youtube.power.LocalPlaylistHelper.getAllPlaylists()
+        if (playlists.isEmpty()) {
+            val placeholder = createInfoCard("No Local Playlists (Create custom playlists in Settings)")
+            return newHomePageResponse(listOf(HomePageList(headerTitle, listOf(placeholder), isHorizontalImages = false)), hasNext = false)
+        }
+
+        val cards = playlists.map { pl ->
+            val firstPoster = pl.items.firstOrNull()?.posterUrl?.takeIf { it.isNotBlank() } ?: defaultIcon
+            val nameWithCount = "${pl.name} (${pl.items.size} videos)"
+            with(mainApi) {
+                newTvSeriesSearchResponse(nameWithCount, "local_playlist:${pl.id}", TvType.TvSeries) {
+                    this.posterUrl = firstPoster
+                }
+            }
+        }
+        return newHomePageResponse(listOf(HomePageList(headerTitle, cards, isHorizontalImages = false)), hasNext = false)
     }
 
     private suspend fun getSubscribedChannelsFeed(headerTitle: String): HomePageResponse {

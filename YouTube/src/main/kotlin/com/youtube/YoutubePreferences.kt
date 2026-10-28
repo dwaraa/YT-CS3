@@ -14,9 +14,11 @@ data class SubscribedChannel(
 )
 
 enum class HomeRowType(val prefKey: String, val displayName: String, val defaultEnabled: Boolean) {
+    WATCH_LATER("show_watch_later", "Watch Later", true),
     COMBINED_SUBSCRIPTIONS("show_combined_subscriptions", "Subscribed: Latest Videos", true),
     SUBSCRIBED_CHANNELS("show_subscribed_channels", "Subscribed Channels (Vertical Posters)", true),
     SHORTS("show_shorts", "YouTube Shorts", true),
+    LOCAL_PLAYLISTS("show_local_playlists", "Local Playlists", true),
     INDIVIDUAL_CHANNELS("show_individual_channels", "Individual Subscribed Channels", true),
     TRENDING("show_trending", "Trending", true),
     MOVIES_AND_SHOWS("show_movies", "Movies & Shows", true),
@@ -86,6 +88,13 @@ object YoutubePreferences {
     private const val KEY_SEARCH_HISTORY = "search_history_json"
     private const val KEY_WATCHED_VIDEO_IDS = "watched_video_ids_set"
 
+    // Stage 5 Power Feature Keys
+    private const val KEY_ACTIVE_PROFILE = "active_profile_name"
+    private const val KEY_AVAILABLE_PROFILES = "available_profiles_json"
+    private const val KEY_ENABLE_SPONSORBLOCK = "enable_sponsorblock"
+    private const val KEY_ENABLE_RYD = "enable_return_youtube_dislike"
+    private const val KEY_AUDIO_ONLY_MODE = "audio_only_mode"
+
     val mapper = jacksonObjectMapper()
 
     inline fun <reified T> fromJson(json: String): T = mapper.readValue(json)
@@ -94,9 +103,20 @@ object YoutubePreferences {
     private var prefs: SharedPreferences? = null
     private val cacheClearListeners = mutableListOf<() -> Unit>()
 
+    /** Namespaces preference keys by the currently active user profile. */
+    fun profileKey(baseKey: String): String {
+        val prof = activeProfile.trim()
+        return if (prof.isEmpty() || prof.equals("Default", ignoreCase = true)) {
+            baseKey
+        } else {
+            "prof_${prof.lowercase().replace(" ", "_")}_$baseKey"
+        }
+    }
+
     fun init(context: Context) {
         if (prefs == null) {
             prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            com.youtube.power.LocalPlaylistHelper.init(context)
             seedDefaultsIfEmpty()
             cleanTruncatedAvatars()
         }
@@ -189,7 +209,7 @@ object YoutubePreferences {
     }
 
     fun getSubscribedChannels(): List<SubscribedChannel> {
-        val raw = prefs?.getString(KEY_SUBSCRIPTIONS, null) ?: return emptyList()
+        val raw = prefs?.getString(profileKey(KEY_SUBSCRIPTIONS), null) ?: return emptyList()
         return try {
             fromJson<List<SubscribedChannel>>(raw)
         } catch (e: Exception) {
@@ -200,7 +220,7 @@ object YoutubePreferences {
 
     fun saveSubscribedChannels(channels: List<SubscribedChannel>) {
         val json = toRawJson(channels)
-        prefs?.edit()?.putString(KEY_SUBSCRIPTIONS, json)?.apply()
+        prefs?.edit()?.putString(profileKey(KEY_SUBSCRIPTIONS), json)?.apply()
     }
 
     fun addChannel(channel: SubscribedChannel) {
@@ -279,14 +299,76 @@ object YoutubePreferences {
         prefs?.edit()?.putLong(KEY_COOKIES_LAST_REFRESH, timestamp)?.apply()
     }
 
+    // --- Profile Management ---
+
+    var activeProfile: String
+        get() = prefs?.getString(KEY_ACTIVE_PROFILE, "Default") ?: "Default"
+        set(value) {
+            prefs?.edit()?.putString(KEY_ACTIVE_PROFILE, value.trim())?.apply()
+        }
+
+    fun getAvailableProfiles(): List<String> {
+        val raw = prefs?.getString(KEY_AVAILABLE_PROFILES, null) ?: return listOf("Default", "Music", "Kids", "Work")
+        return try {
+            val list = fromJson<List<String>>(raw)
+            if (!list.contains("Default")) listOf("Default") + list else list
+        } catch (_: Exception) {
+            listOf("Default", "Music", "Kids", "Work")
+        }
+    }
+
+    fun saveAvailableProfiles(profiles: List<String>) {
+        val distinct = profiles.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        val safe = if (!distinct.contains("Default")) listOf("Default") + distinct else distinct
+        prefs?.edit()?.putString(KEY_AVAILABLE_PROFILES, toRawJson(safe))?.apply()
+    }
+
+    fun switchProfile(name: String) {
+        val clean = name.trim()
+        if (clean.isBlank()) return
+        activeProfile = clean
+        seedDefaultsIfEmpty()
+        notifyCacheCleared()
+    }
+
+    fun addProfile(name: String): Boolean {
+        val clean = name.trim()
+        if (clean.isBlank()) return false
+        val current = getAvailableProfiles().toMutableList()
+        if (current.none { it.equals(clean, ignoreCase = true) }) {
+            current.add(clean)
+            saveAvailableProfiles(current)
+            switchProfile(clean)
+            return true
+        }
+        return false
+    }
+
+    fun deleteProfile(name: String): Boolean {
+        val clean = name.trim()
+        if (clean.equals("Default", ignoreCase = true)) return false
+        val current = getAvailableProfiles().toMutableList()
+        val removed = current.removeAll { it.equals(clean, ignoreCase = true) }
+        if (removed) {
+            saveAvailableProfiles(current)
+            if (activeProfile.equals(clean, ignoreCase = true)) {
+                switchProfile("Default")
+            } else {
+                notifyCacheCleared()
+            }
+            return true
+        }
+        return false
+    }
+
     // --- Typed Home Row Settings ---
 
     fun isRowEnabled(rowType: HomeRowType): Boolean {
-        return prefs?.getBoolean(rowType.prefKey, rowType.defaultEnabled) ?: rowType.defaultEnabled
+        return prefs?.getBoolean(profileKey(rowType.prefKey), rowType.defaultEnabled) ?: rowType.defaultEnabled
     }
 
     fun setRowEnabled(rowType: HomeRowType, enabled: Boolean) {
-        prefs?.edit()?.putBoolean(rowType.prefKey, enabled)?.apply()
+        prefs?.edit()?.putBoolean(profileKey(rowType.prefKey), enabled)?.apply()
     }
 
     var showCombinedSubscriptions: Boolean get() = isRowEnabled(HomeRowType.COMBINED_SUBSCRIPTIONS); set(v) = setRowEnabled(HomeRowType.COMBINED_SUBSCRIPTIONS, v)
@@ -298,6 +380,8 @@ object YoutubePreferences {
     var showMovies: Boolean get() = isRowEnabled(HomeRowType.MOVIES_AND_SHOWS); set(v) = setRowEnabled(HomeRowType.MOVIES_AND_SHOWS, v)
     var showPodcasts: Boolean get() = isRowEnabled(HomeRowType.PODCASTS); set(v) = setRowEnabled(HomeRowType.PODCASTS, v)
     var showLive: Boolean get() = isRowEnabled(HomeRowType.LIVE_STREAMS); set(v) = setRowEnabled(HomeRowType.LIVE_STREAMS, v)
+    var showWatchLater: Boolean get() = isRowEnabled(HomeRowType.WATCH_LATER); set(v) = setRowEnabled(HomeRowType.WATCH_LATER, v)
+    var showLocalPlaylists: Boolean get() = isRowEnabled(HomeRowType.LOCAL_PLAYLISTS); set(v) = setRowEnabled(HomeRowType.LOCAL_PLAYLISTS, v)
 
     // Configurable Cache TTL in minutes (e.g. 1, 5, 15, 30, 60; default 5)
     var cacheTtlMinutes: Int
@@ -330,35 +414,52 @@ object YoutubePreferences {
         get() = prefs?.getString(KEY_PREFERRED_SUBTITLE, "English") ?: "English"
         set(value) { prefs?.edit()?.putString(KEY_PREFERRED_SUBTITLE, value)?.apply() }
 
+    // --- Stage 5 Power Feature Toggles ---
+
+    var enableSponsorBlock: Boolean
+        get() = prefs?.getBoolean(KEY_ENABLE_SPONSORBLOCK, true) ?: true
+        set(value) { prefs?.edit()?.putBoolean(KEY_ENABLE_SPONSORBLOCK, value)?.apply() }
+
+    var enableReturnYouTubeDislike: Boolean
+        get() = prefs?.getBoolean(KEY_ENABLE_RYD, true) ?: true
+        set(value) { prefs?.edit()?.putBoolean(KEY_ENABLE_RYD, value)?.apply() }
+
+    var audioOnlyMode: Boolean
+        get() = prefs?.getBoolean(KEY_AUDIO_ONLY_MODE, false) ?: false
+        set(value) {
+            prefs?.edit()?.putBoolean(KEY_AUDIO_ONLY_MODE, value)?.apply()
+            notifyCacheCleared()
+        }
+
     // --- Stage 4: Core User Features Preferences ---
 
     // 1. Shorts Handling Mode
     var shortsMode: ShortsMode
-        get() = ShortsMode.fromPrefValue(prefs?.getString(KEY_SHORTS_MODE, ShortsMode.SHOW_INLINE.prefValue))
+        get() = ShortsMode.fromPrefValue(prefs?.getString(profileKey(KEY_SHORTS_MODE), ShortsMode.SHOW_INLINE.prefValue))
         set(value) {
-            prefs?.edit()?.putString(KEY_SHORTS_MODE, value.prefValue)?.apply()
+            prefs?.edit()?.putString(profileKey(KEY_SHORTS_MODE), value.prefValue)?.apply()
             notifyCacheCleared()
         }
 
     // 2. Hide Watched / Unwatched Only in Subscription Feeds
     var hideWatchedInSubscriptions: Boolean
-        get() = prefs?.getBoolean(KEY_HIDE_WATCHED_IN_SUBS, false) ?: false
+        get() = prefs?.getBoolean(profileKey(KEY_HIDE_WATCHED_IN_SUBS), false) ?: false
         set(value) {
-            prefs?.edit()?.putBoolean(KEY_HIDE_WATCHED_IN_SUBS, value)?.apply()
+            prefs?.edit()?.putBoolean(profileKey(KEY_HIDE_WATCHED_IN_SUBS), value)?.apply()
             notifyCacheCleared()
         }
 
     // 3. Per-Row Item Limits (Default: 20)
     var itemsPerRowLimit: Int
-        get() = prefs?.getInt(KEY_ITEMS_PER_ROW_LIMIT, 20) ?: 20
+        get() = prefs?.getInt(profileKey(KEY_ITEMS_PER_ROW_LIMIT), 20) ?: 20
         set(value) {
-            prefs?.edit()?.putInt(KEY_ITEMS_PER_ROW_LIMIT, value.coerceIn(5, 50))?.apply()
+            prefs?.edit()?.putInt(profileKey(KEY_ITEMS_PER_ROW_LIMIT), value.coerceIn(5, 50))?.apply()
             notifyCacheCleared()
         }
 
     // 4. Home Row Order
     fun getRowOrder(): List<HomeRowType> {
-        val raw = prefs?.getString(KEY_ROW_ORDER, null) ?: return defaultRowOrder
+        val raw = prefs?.getString(profileKey(KEY_ROW_ORDER), null) ?: return defaultRowOrder
         return try {
             val keys = fromJson<List<String>>(raw)
             val parsed = keys.mapNotNull { HomeRowType.fromPrefKey(it) }.toMutableList()
@@ -380,13 +481,15 @@ object YoutubePreferences {
 
     fun saveRowOrder(order: List<HomeRowType>) {
         val keys = order.map { it.prefKey }
-        prefs?.edit()?.putString(KEY_ROW_ORDER, toRawJson(keys))?.apply()
+        prefs?.edit()?.putString(profileKey(KEY_ROW_ORDER), toRawJson(keys))?.apply()
     }
 
     val defaultRowOrder: List<HomeRowType> = listOf(
+        HomeRowType.WATCH_LATER,
         HomeRowType.COMBINED_SUBSCRIPTIONS,
         HomeRowType.SUBSCRIBED_CHANNELS,
         HomeRowType.SHORTS,
+        HomeRowType.LOCAL_PLAYLISTS,
         HomeRowType.INDIVIDUAL_CHANNELS,
         HomeRowType.TRENDING,
         HomeRowType.MOVIES_AND_SHOWS,
@@ -398,16 +501,16 @@ object YoutubePreferences {
 
     // 5. Trending Region & Content Language
     var trendingRegion: String
-        get() = prefs?.getString(KEY_TRENDING_REGION, "US") ?: "US"
+        get() = prefs?.getString(profileKey(KEY_TRENDING_REGION), "US") ?: "US"
         set(value) {
-            prefs?.edit()?.putString(KEY_TRENDING_REGION, value.uppercase())?.apply()
+            prefs?.edit()?.putString(profileKey(KEY_TRENDING_REGION), value.uppercase())?.apply()
             notifyCacheCleared()
         }
 
     var contentLanguage: String
-        get() = prefs?.getString(KEY_CONTENT_LANGUAGE, "en") ?: "en"
+        get() = prefs?.getString(profileKey(KEY_CONTENT_LANGUAGE), "en") ?: "en"
         set(value) {
-            prefs?.edit()?.putString(KEY_CONTENT_LANGUAGE, value.lowercase())?.apply()
+            prefs?.edit()?.putString(profileKey(KEY_CONTENT_LANGUAGE), value.lowercase())?.apply()
             notifyCacheCleared()
         }
 
@@ -422,7 +525,7 @@ object YoutubePreferences {
 
     // 7. Search History
     fun getSearchHistory(): List<String> {
-        val raw = prefs?.getString(KEY_SEARCH_HISTORY, null) ?: return emptyList()
+        val raw = prefs?.getString(profileKey(KEY_SEARCH_HISTORY), null) ?: return emptyList()
         return try {
             fromJson<List<String>>(raw)
         } catch (e: Exception) {
@@ -438,17 +541,17 @@ object YoutubePreferences {
         current.removeAll { it.equals(trimmed, ignoreCase = true) }
         current.add(0, trimmed)
         val capped = current.take(20)
-        prefs?.edit()?.putString(KEY_SEARCH_HISTORY, toRawJson(capped))?.apply()
+        prefs?.edit()?.putString(profileKey(KEY_SEARCH_HISTORY), toRawJson(capped))?.apply()
     }
 
     fun clearSearchHistory() {
-        prefs?.edit()?.remove(KEY_SEARCH_HISTORY)?.apply()
+        prefs?.edit()?.remove(profileKey(KEY_SEARCH_HISTORY))?.apply()
     }
 
     // 8. Watched Tracking & Check
     fun isWatched(urlOrId: String): Boolean {
         val clean = urlOrId.trim()
-        val watchedSet = prefs?.getStringSet(KEY_WATCHED_VIDEO_IDS, null) ?: emptySet()
+        val watchedSet = prefs?.getStringSet(profileKey(KEY_WATCHED_VIDEO_IDS), null) ?: emptySet()
         val videoId = if (clean.contains("v=")) {
             clean.substringAfter("v=").substringBefore("&")
         } else if (clean.contains("/shorts/")) {
@@ -508,7 +611,7 @@ object YoutubePreferences {
 
     fun markWatched(urlOrId: String, watched: Boolean) {
         val clean = urlOrId.trim()
-        val currentSet = (prefs?.getStringSet(KEY_WATCHED_VIDEO_IDS, null) ?: emptySet()).toMutableSet()
+        val currentSet = (prefs?.getStringSet(profileKey(KEY_WATCHED_VIDEO_IDS), null) ?: emptySet()).toMutableSet()
         val videoId = if (clean.contains("v=")) {
             clean.substringAfter("v=").substringBefore("&")
         } else if (clean.contains("/shorts/")) {
@@ -524,12 +627,12 @@ object YoutubePreferences {
             currentSet.remove(clean)
             if (videoId.isNotBlank()) currentSet.remove(videoId)
         }
-        prefs?.edit()?.putStringSet(KEY_WATCHED_VIDEO_IDS, currentSet)?.apply()
+        prefs?.edit()?.putStringSet(profileKey(KEY_WATCHED_VIDEO_IDS), currentSet)?.apply()
         notifyCacheCleared()
     }
 
     fun clearWatchHistory() {
-        prefs?.edit()?.remove(KEY_WATCHED_VIDEO_IDS)?.apply()
+        prefs?.edit()?.remove(profileKey(KEY_WATCHED_VIDEO_IDS))?.apply()
         notifyCacheCleared()
     }
 

@@ -13,11 +13,12 @@ object YoutubeLoaders {
     private val service = ServiceList.YouTube
 
     enum class UrlType {
-        Video, Channel, Playlist, Unknown
+        Video, Channel, Playlist, LocalPlaylist, Unknown
     }
 
     fun getUrlType(url: String): UrlType {
         return when {
+            url.startsWith("local_playlist:") -> UrlType.LocalPlaylist
             url.contains("/watch") || url.contains("youtu.be/") || url.contains("/shorts/") || url.contains("/embed/") -> UrlType.Video
             url.contains("/channel/") || url.contains("/@") || url.contains("/c/") || url.contains("/user/") -> UrlType.Channel
             url.contains("/playlist?list=") -> UrlType.Playlist
@@ -82,12 +83,27 @@ object YoutubeLoaders {
             }
         } else ""
 
-        // Rich video details: views, likes, upload date, chapters
+        // Rich video details: views, likes/dislikes (RYD), upload date, chapters
+        val videoId = extractVideoId(watchUrl)
+
+        val ryd = if (YoutubePreferences.enableReturnYouTubeDislike && videoId != null) {
+            try {
+                com.youtube.power.ReturnYouTubeDislikeHelper.getDislikes(videoId)
+            } catch (e: Exception) {
+                Log.d(TAG, "RYD fetch failed: ${e.message}")
+                null
+            }
+        } else null
+
         val viewsText = if (info.viewCount > 0) "${YoutubeEpisodeMapper.formatCount(info.viewCount)} views" else ""
-        val likesText = if (info.likeCount > 0) "${YoutubeEpisodeMapper.formatCount(info.likeCount)} likes" else ""
+        val likesDislikesText = when {
+            ryd != null -> ryd.formattedStats()
+            info.likeCount > 0 -> "${YoutubeEpisodeMapper.formatCount(info.likeCount)} likes"
+            else -> ""
+        }
         val dateText = info.textualUploadDate?.takeIf { it.isNotBlank() } ?: ""
 
-        val statsLine = listOf(viewsText, likesText, dateText).filter { it.isNotBlank() }.joinToString(" • ")
+        val statsLine = listOf(viewsText, likesDislikesText, dateText).filter { it.isNotBlank() }.joinToString(" • ")
 
         val segments = try {
             info.streamSegments
@@ -95,13 +111,16 @@ object YoutubeLoaders {
             null
         }
 
-        val chaptersSection = if (!segments.isNullOrEmpty()) {
-            val chapterLines = segments.joinToString("\n") { seg ->
-                val ts = YoutubeEpisodeMapper.formatSecondsToTimestamp(seg.startTimeSeconds)
-                "- $ts ${seg.title ?: "Chapter"}"
+        // SponsorBlock segments
+        val sponsorBlockSection = if (YoutubePreferences.enableSponsorBlock && videoId != null) {
+            try {
+                val segs = com.youtube.power.SponsorBlockHelper.getSegments(videoId)
+                com.youtube.power.SponsorBlockHelper.formatSegmentsForDescription(segs)
+            } catch (e: Exception) {
+                Log.d(TAG, "SponsorBlock fetch failed: ${e.message}")
+                null
             }
-            "Chapters:\n$chapterLines\n\n"
-        } else ""
+        } else null
 
         val liveStatusHeader = when {
             isUpcoming -> "Scheduled / Upcoming Live Stream: Broadcast has not started yet."
@@ -125,6 +144,34 @@ object YoutubeLoaders {
             "Chapters:\n" + lines.joinToString("\n")
         } else null
 
+        // Subtitles / Transcripts availability overview
+        val transcriptsBlock = if (!info.subtitles.isNullOrEmpty()) {
+            val subNames = info.subtitles.mapNotNull { it.displayLanguageName ?: it.languageTag }.distinct()
+            if (subNames.isNotEmpty()) {
+                "Subtitles / Transcripts (${subNames.size}):\n" + subNames.joinToString(", ")
+            } else null
+        } else null
+
+        // Top comments extraction
+        val commentsBlock = try {
+            val commentsInfo = org.schabi.newpipe.extractor.comments.CommentsInfo.getInfo(service, watchUrl)
+            val comments = commentsInfo?.relatedItems?.take(5)
+            if (!comments.isNullOrEmpty()) {
+                val lines = comments.mapNotNull { item ->
+                    val author = item.uploaderName ?: "User"
+                    val text = item.commentText?.content?.trim()?.replace("\r", "")?.replace("\n", " ") ?: ""
+                    val likes = if (item.likeCount > 0) " (👍 ${YoutubeEpisodeMapper.formatCount(item.likeCount)})" else ""
+                    if (text.isNotBlank()) "• @$author$likes: $text" else null
+                }
+                if (lines.isNotEmpty()) {
+                    "Top Comments:\n" + lines.joinToString("\n\n")
+                } else null
+            } else null
+        } catch (t: Throwable) {
+            Log.d(TAG, "Comments extraction skipped: ${t.message}")
+            null
+        }
+
         val cleanDescText = rawDescription
             .takeIf { it.isNotBlank() && it != "null" }
             ?.replace("\r\n", "\n")
@@ -135,7 +182,10 @@ object YoutubeLoaders {
         val plotSections = listOfNotNull(
             liveStatusHeader,
             unifiedMeta.takeIf { it.isNotBlank() },
+            sponsorBlockSection,
             chaptersBlock,
+            transcriptsBlock,
+            commentsBlock,
             cleanDescText
         )
 
@@ -159,6 +209,14 @@ object YoutubeLoaders {
                 this.backgroundPosterUrl = poster
                 this.duration = durationMinutes
                 this.year = uploadYear
+
+                if (ryd != null && ryd.rating > 0.0) {
+                    this.rating = (ryd.rating * 20.0).toInt().coerceIn(1, 100)
+                }
+
+                this.recommendations = info.relatedItems?.mapNotNull {
+                    YoutubeEpisodeMapper.toSearchResponse(api, it)
+                }
 
                 info.uploaderName?.takeIf { it.isNotBlank() }?.let { uploader ->
                     actors = listOf(
@@ -340,4 +398,36 @@ object YoutubeLoaders {
             }
         }
     }
+
+    suspend fun loadLocalPlaylist(api: MainAPI, playlistId: String): LoadResponse {
+        val playlist = com.youtube.power.LocalPlaylistHelper.getPlaylist(playlistId)
+            ?: com.youtube.power.LocalPlaylistHelper.getAllPlaylists().firstOrNull { it.id == playlistId }
+            ?: throw ErrorLoadingException("Local Playlist '$playlistId' not found")
+
+        val episodes = playlist.items.mapIndexed { idx, item ->
+            with(api) {
+                newEpisode(item.url) {
+                    this.name = item.title
+                    this.posterUrl = item.posterUrl
+                    this.episode = idx + 1
+                    this.season = 1
+                    this.data = item.url
+                }
+            }
+        }
+
+        return with(api) {
+            newTvSeriesLoadResponse(
+                playlist.name,
+                "local_playlist:${playlist.id}",
+                TvType.TvSeries,
+                episodes
+            ) {
+                this.plot = "Local Playlist: ${playlist.name}\n${playlist.items.size} videos"
+                this.posterUrl = playlist.items.firstOrNull()?.posterUrl
+                this.tags = listOf("Local Playlist", "${playlist.items.size} Videos")
+            }
+        }
+    }
 }
+

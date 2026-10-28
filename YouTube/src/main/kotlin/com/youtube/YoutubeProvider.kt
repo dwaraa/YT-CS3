@@ -131,6 +131,10 @@ class YoutubeProvider : MainAPI() {
 
         return try {
             when (urlType) {
+                YoutubeLoaders.UrlType.LocalPlaylist -> {
+                    val playlistId = cleanUrl.removePrefix("local_playlist:")
+                    YoutubeLoaders.loadLocalPlaylist(this, playlistId)
+                }
                 YoutubeLoaders.UrlType.Video -> YoutubeLoaders.loadVideo(this, cleanUrl)
                 YoutubeLoaders.UrlType.Channel -> YoutubeLoaders.loadChannel(this, cleanUrl)
                 YoutubeLoaders.UrlType.Playlist -> YoutubeLoaders.loadPlaylist(this, cleanUrl)

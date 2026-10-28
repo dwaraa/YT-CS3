@@ -57,7 +57,7 @@ object YoutubeSettings {
             setTypeface(null, Typeface.BOLD)
         }
         val subtitle = TextView(context).apply {
-            text = "Preferences & Subscriptions"
+            text = "Profile: ${YoutubePreferences.activeProfile} • ${YoutubePreferences.getSubscribedChannels().size} Channels"
             setTextColor(SettingsTheme.getTextSecondaryColor(context))
             textSize = 12f
         }
@@ -154,7 +154,7 @@ object YoutubeSettings {
         }
 
         val updateCountUi: () -> Unit = {
-            subtitle.text = "${YoutubePreferences.getSubscribedChannels().size} Channels • Region: ${YoutubePreferences.trendingRegion}"
+            subtitle.text = "Profile: ${YoutubePreferences.activeProfile} • ${YoutubePreferences.getSubscribedChannels().size} Channels • Region: ${YoutubePreferences.trendingRegion}"
         }
 
         // Add Channel Row
@@ -261,17 +261,30 @@ object YoutubeSettings {
         content.addView(channelListContainer)
 
         // ==========================================
-        // SECTION 3: FEED & CONTENT CUSTOMIZATION
+        // SECTION 3: POWER FEATURES (STAGE 5)
+        // ==========================================
+        val powerViews = SettingsContentSection.buildPowerFeaturesViews(context) {
+            updateCountUi()
+            SubscriptionDialogs.refreshChannelList(context, channelListContainer, updateCountUi)
+            dialog.dismiss()
+            show(context)
+        }
+        powerViews.forEach { content.addView(it) }
+
+        // ==========================================
+        // SECTION 4: FEED & CONTENT CUSTOMIZATION
         // ==========================================
         val contentViews = SettingsContentSection.buildContentCustomizationViews(context, subtitle)
         contentViews.forEach { content.addView(it) }
 
         // ==========================================
-        // SECTION 4: HOME SCREEN FEED ROWS
+        // SECTION 5: HOME SCREEN FEED ROWS
         // ==========================================
         content.addView(SettingsComponents.createSectionHeader(context, "Home Screen Feed Rows"))
 
         val rowToggles = listOf(
+            Pair(HomeRowType.WATCH_LATER, "Watch Later queue of saved videos"),
+            Pair(HomeRowType.LOCAL_PLAYLISTS, "Custom offline playlists"),
             Pair(HomeRowType.COMBINED_SUBSCRIPTIONS, "Merged feed of all subscribed creators"),
             Pair(HomeRowType.SUBSCRIBED_CHANNELS, "Channel avatars in a vertical poster row"),
             Pair(HomeRowType.SHORTS, "Vertical short-form videos"),

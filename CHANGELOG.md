@@ -9,9 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned
-- SponsorBlock integration for skipping sponsor segments.
-- Return YouTube Dislike (RYD) API integration.
+---
+
+## [1.5.0] - 2026-10-28
+
+### Added
+- **Stage 5: Power Features**:
+  - **SponsorBlock Integration**:
+    - Automatically queries `sponsor.ajay.app` for skip segments (sponsor, intro, outro, selfpromo).
+    - Generates a `⚡ SponsorBlock Markers` WebVTT subtitle track for in-player skip visual cues.
+    - Formats timestamped segment lists in the video overview plot.
+    - User toggle in settings.
+  - **Return YouTube Dislike (RYD)**:
+    - Real-time dislike counts, total votes, and like approval percentage from `returnyoutubedislikeapi.com`.
+    - Formats stats (`👍 12.5K | 👎 342 (97.3%)`) and updates video star ratings.
+    - User toggle in settings.
+  - **Seekable Chapters & Transcripts**:
+    - Generates `📖 Seekable Chapters` WebVTT cue track from stream segments for precise in-player seeking.
+    - Formats chapters with timestamps and displays available subtitle transcripts in video details.
+  - **Local Playlists & "Watch Later"**:
+    - Persistent offline playlist storage with JSON serialization.
+    - Dedicated "Watch Later" queue home row and custom local playlists home row.
+    - Ability to play local playlists as native CloudStream TV series with episode lists.
+    - Management dialog in settings for viewing, creating, and deleting playlists.
+  - **Comments & Related Videos**:
+    - Top comments extracted via NewPipe's `CommentsInfo` and formatted directly in the video overview.
+    - CloudStream recommendations carousel populated with stream related items.
+  - **Audio-Only / Background Playback Mode**:
+    - Pure audio stream prioritization (300,000 score) for background listening (M4A and Opus).
+    - Independent audio links clearly tagged with bitrate and language.
+    - User toggle in settings.
+  - **Multiple User Profiles**:
+    - Support for multiple workspaces (`Default`, `Kids`, `Music`, `Work`, or custom profiles).
+    - Each profile maintains distinct subscriptions, row ordering, item limits, search history, and watch progress.
+    - Profile switcher dialog in settings with quick switch, add, and delete actions.
+  - **In-App Self-Test & Diagnostics**:
+    - Automated diagnostic suite checking NewPipeExtractor `v0.26.5`, YouTube search/suggestion extraction, ping latencies to YouTube, RYD, and SponsorBlock, consent cookie health, and AudioTrackHelper status.
+    - Generates a clean Markdown report with a one-tap "Copy Report" button for debugging.
+  - **Unit Tests**:
+    - Added `YoutubePowerFeaturesTest` covering SponsorBlock WebVTT generation, RYD parsing, local playlist serialization, diagnostics reporting, and profile namespacing.
 
 ---
 

@@ -73,10 +73,38 @@ A high-performance **CloudStream 3** provider plugin for **YouTube**, powered by
 - **DASH Manifests**:
   - Adaptive DASH MPD stream pass-through with `ExtractorLinkType.DASH`.
 
+### ⚡ Stage 5: Power Features (Standout Features)
+- **⚡ SponsorBlock Integration**:
+  - Automatically queries the SponsorBlock community database (`sponsor.ajay.app`).
+  - Renders sponsor segment breakdown in the video details with timestamps (`Sponsor`, `Intro / Animation`, `Outro / Credits`, `Selfpromo`).
+  - Injects a `⚡ SponsorBlock Markers` WebVTT subtitle track directly into CloudStream's player, marking sponsor skips on screen.
+- **👎 Return YouTube Dislike (RYD)**:
+  - Fetches real-time dislikes and ratings from the Return YouTube Dislike API.
+  - Displays formatted like/dislike counts (`👍 12.5K | 👎 342 (97.3%)`) and sets the video's star rating.
+- **📖 Seekable Chapters & Transcripts**:
+  - Automatically extracts timestamped video chapters and renders a dedicated `📖 Seekable Chapters` WebVTT cue track for player seeking.
+  - Formats full chapter list and lists available closed captions / language transcripts in the video description.
+- **💾 Local Playlists & "Watch Later"**:
+  - Offline local playlist management and dedicated "Watch Later" row on the home screen.
+  - Create custom playlists (e.g. "Favorites", "Podcasts"), add/remove items, and play local playlists as native TV series with episodes.
+- **💬 Top Comments & Related Recommendations**:
+  - Extracts and formats top viewer comments directly in the video overview.
+  - Populates CloudStream's native recommendations carousel with related videos parsed from the stream.
+- **🎧 Audio-Only / Background Mode**:
+  - Dedicated Audio-Only mode prioritizing pure M4A and Opus audio streams with highest quality scores.
+  - Perfect for listening to music, lectures, and podcasts with display off or minimal data usage.
+- **👥 Multiple Profiles (Kids, Music, Work, Default)**:
+  - Create separate profiles, each with its own subscribed channels, home feed ordering, item limits, and watch history.
+  - Quick-switch profiles with one tap in settings.
+- **🩺 In-App Self-Test & Diagnostics**:
+  - Built-in diagnostic suite that tests NewPipe version (`v0.26.5`), queries YouTube extraction, pings YouTube/RYD/SponsorBlock API latencies, checks consent cookie health, and verifies audio track merging.
+  - Generates a comprehensive markdown report with a "Copy Report" button for instant sharing and troubleshooting.
+
 ### 🛡️ Reliability & Resilience
 - **Error Transparency**: Clear in-app error feedback (e.g., bot checks, age restrictions, region blocks) instead of silent failures.
 - **Negative Caching & Backoff**: Failing channels are placed on a short 60-second backoff to prevent hammering the network.
 - **Refreshable Consent Cookies**: Automatically catches and refreshes YouTube consent tokens (`SOCS`, `CONSENT`) and persists them locally.
+- **ExoPlayer Compatibility**: WebM (VP9) streams are prioritized over fragmented MP4 chunks to eliminate `ERROR_CODE_DECODER_INIT_FAILED (4001)`.
 
 ---
 

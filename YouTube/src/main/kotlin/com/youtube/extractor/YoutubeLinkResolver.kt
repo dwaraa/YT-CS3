@@ -290,13 +290,40 @@ object YoutubeLinkResolver {
             Log.w(TAG, "Video-only stream processing skipped or failed: ${t.message}")
         }
 
+        // F. Audio-Only / Background Playback Streams (Music & Podcasts)
+        try {
+            for (audio in parsedAudioTracks) {
+                val audioUrl = audio.stream.content
+                if (audioUrl.isNullOrBlank()) continue
+                val audioLink = newExtractorLink(
+                    source = providerName,
+                    name = "$providerName [Audio Only] ${audio.fullLabel}",
+                    url = audioUrl,
+                    type = ExtractorLinkType.AUDIO
+                ) {
+                    this.headers = defaultHeaders
+                    this.quality = Qualities.Unknown.value
+                }
+                generatedLinks.add(audioLink)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Audio-only stream extraction failed: ${t.message}")
+        }
+
         // G. Prioritize & Sort Links
         // Strictly honor user preferred resolution:
+        // - In Audio-Only mode, Audio links receive top priority (300,000)
         // - Exact match in WebM gets highest priority
         // - Adaptive DASH manifest prioritized for Auto
         // - MP4 video-only streams placed below WebM to avoid decoder init crash in ExoPlayer
         // - Lower resolutions are safe fallbacks
+        val isAudioOnlyMode = com.youtube.YoutubePreferences.audioOnlyMode
         fun scoreLink(link: ExtractorLink): Int {
+            if (isAudioOnlyMode && link.type == ExtractorLinkType.AUDIO) {
+                return 300000 + (if (link.name.contains("M4A")) 1000 else 500)
+            }
+            if (link.type == ExtractorLinkType.AUDIO) return 1000
+
             if (link.type == ExtractorLinkType.M3U8) return 200000
             val isMute = link.name.contains("[Video Only]")
             val isExternalVlc = link.name.contains("[External/VLC]")
@@ -341,7 +368,70 @@ object YoutubeLinkResolver {
         val sortedLinks = generatedLinks.sortedByDescending { scoreLink(it) }
         sortedLinks.forEach { callback(it) }
 
-        // H. Subtitles & Closed Captions
+        // H. SponsorBlock Subtitle Markers
+        if (com.youtube.YoutubePreferences.enableSponsorBlock) {
+            try {
+                val videoId = com.youtube.loader.YoutubeLoaders.extractVideoId(info.url ?: "") ?: info.id
+                if (!videoId.isNullOrBlank()) {
+                    val sponsorSegments = com.youtube.power.SponsorBlockHelper.getSegments(videoId)
+                    val vttDataUrl = com.youtube.power.SponsorBlockHelper.generateWebVttDataUrl(sponsorSegments)
+                    if (vttDataUrl.isNotBlank()) {
+                        subtitleCallback(
+                            newSubtitleFile(
+                                lang = "⚡ SponsorBlock Markers",
+                                url = vttDataUrl
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed generating SponsorBlock subtitle marker: ${e.message}")
+            }
+        }
+
+        // I. Seekable Chapters as WebVTT Subtitle Track
+        try {
+            val segments = info.streamSegments
+            if (!segments.isNullOrEmpty()) {
+                val sb = java.lang.StringBuilder("WEBVTT\n\n")
+                for (i in segments.indices) {
+                    val seg = segments[i]
+                    val startSec = seg.startTimeSeconds.toDouble()
+                    val endSec = if (i + 1 < segments.size) {
+                        segments[i + 1].startTimeSeconds.toDouble()
+                    } else if (info.duration > 0) {
+                        info.duration.toDouble()
+                    } else {
+                        startSec + 30.0
+                    }
+
+                    fun formatVttTime(seconds: Double): String {
+                        val totalMs = (seconds * 1000).toLong()
+                        val hrs = totalMs / 3600000
+                        val mins = (totalMs % 3600000) / 60000
+                        val secs = (totalMs % 60000) / 1000
+                        val ms = totalMs % 1000
+                        return String.format("%02d:%02d:%02d.%03d", hrs, mins, secs, ms)
+                    }
+
+                    sb.append("${i + 1}\n")
+                    sb.append("${formatVttTime(startSec)} --> ${formatVttTime(endSec)}\n")
+                    sb.append("${seg.title?.trim() ?: "Chapter ${i + 1}"}\n\n")
+                }
+                val encoded = java.net.URLEncoder.encode(sb.toString(), "UTF-8").replace("+", "%20")
+                val chaptersDataUrl = "data:text/vtt;charset=utf-8,$encoded"
+                subtitleCallback(
+                    newSubtitleFile(
+                        lang = "📖 Seekable Chapters",
+                        url = chaptersDataUrl
+                    )
+                )
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed generating chapters subtitle track: ${t.message}")
+        }
+
+        // J. Subtitles & Closed Captions
         try {
             val preferredSub = preferredSubtitleLang?.takeIf { !it.equals("None", ignoreCase = true) }
             val sortedSubtitles = info.subtitles.orEmpty().sortedWith(
@@ -370,3 +460,4 @@ object YoutubeLinkResolver {
         }
     }
 }
+
