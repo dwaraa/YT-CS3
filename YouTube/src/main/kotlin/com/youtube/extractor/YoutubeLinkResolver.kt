@@ -189,6 +189,8 @@ object YoutubeLinkResolver {
         val parsedAudioTracks = rawAudioStreams.map { parseAudioStream(it) }
         val primaryAudio = selectBestAudio(parsedAudioTracks, preferredSubtitleLang)
         val distinctAudioTracks = parsedAudioTracks.distinctBy { Pair(it.languageName, it.trackTypeTag) }
+        val distinctLanguages = parsedAudioTracks.map { it.languageName }.distinct()
+        val hasMultipleAudioLanguages = distinctLanguages.size > 1
 
         // C. Adaptive DASH Manifest Stream (Full HD, 2K, 4K with synchronized audio)
         try {
@@ -211,7 +213,6 @@ object YoutubeLinkResolver {
 
         // D. Progressive Streams (pre-muxed audio + video - 100% reliable on all Android devices)
         val supportsSeparateAudio = AudioTrackHelper.isSupported()
-        val allAudioTrackPairs = distinctAudioTracks.map { it.stream.content to defaultHeaders }
 
         try {
             val rawVideoStreams = info.videoStreams.orEmpty().filter { !it.content.isNullOrBlank() }
@@ -223,20 +224,39 @@ object YoutubeLinkResolver {
                 val formatTag = (stream.format?.name ?: "MP4").uppercase()
                 val qualityNum = heightToQuality(height)
 
+                // Progressive MP4 streams on YouTube are pre-muxed with the original/default audio (English).
+                // Do NOT attach external audio streams to the default link! Attaching external audio streams
+                // causes ExoPlayer to spawn duplicate "und. Stereo" tracks alongside the native audio track.
+                val defaultLangTag = if (hasMultipleAudioLanguages) " [English - Original]" else ""
                 val link = newExtractorLink(
                     source = providerName,
-                    name = "$providerName $resLabel$fpsTag ($formatTag)",
+                    name = "$providerName $resLabel$fpsTag ($formatTag)$defaultLangTag",
                     url = stream.content,
                     type = ExtractorLinkType.VIDEO
                 ) {
                     this.headers = defaultHeaders
                     this.quality = qualityNum
                 }
-
-                if (supportsSeparateAudio && allAudioTrackPairs.isNotEmpty()) {
-                    AudioTrackHelper.attachAudioTracks(link, allAudioTrackPairs)
-                }
                 generatedLinks.add(link)
+
+                // If the video has multiple dubbed languages (e.g. Spanish, French, Japanese, Hindi),
+                // create dedicated dubbed progressive streams with that specific audio track attached:
+                if (supportsSeparateAudio && hasMultipleAudioLanguages) {
+                    val dubbedTracks = distinctAudioTracks.filter { !it.isOriginal && !it.languageName.equals("English", ignoreCase = true) }
+                    for (dub in dubbedTracks) {
+                        val dubbedLink = newExtractorLink(
+                            source = providerName,
+                            name = "$providerName $resLabel$fpsTag ($formatTag) [${dub.languageName}${dub.trackTypeTag}]",
+                            url = stream.content,
+                            type = ExtractorLinkType.VIDEO
+                        ) {
+                            this.headers = defaultHeaders
+                            this.quality = qualityNum
+                        }
+                        AudioTrackHelper.attachAudioTrack(dubbedLink, dub.stream.content, defaultHeaders)
+                        generatedLinks.add(dubbedLink)
+                    }
+                }
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Progressive stream generation failed: ${t.message}")
@@ -270,7 +290,9 @@ object YoutubeLinkResolver {
                 val formatLabel = if (isWebmOrVp9) "WebM" else "MPEG-4"
                 val vlcTag = if (isMp4) " [External/VLC]" else ""
 
-                val primaryLinkName = "$providerName $resLabel$fpsTag ($formatLabel)$muteTag$vlcTag"
+                // Primary link for this video resolution (attaching ONLY the single best primary audio track)
+                val primaryLangTag = if (hasMultipleAudioLanguages && primaryAudio != null) " [${primaryAudio.languageName}${primaryAudio.trackTypeTag}]" else ""
+                val primaryLinkName = "$providerName $resLabel$fpsTag ($formatLabel)$primaryLangTag$muteTag$vlcTag"
                 val link = newExtractorLink(
                     source = providerName,
                     name = primaryLinkName,
@@ -281,10 +303,32 @@ object YoutubeLinkResolver {
                     this.quality = qualityNum
                 }
 
-                if (supportsSeparateAudio && allAudioTrackPairs.isNotEmpty()) {
-                    AudioTrackHelper.attachAudioTracks(link, allAudioTrackPairs)
+                // Attach ONLY the single best audio track for this link.
+                // Never attach all tracks together into a single link, which causes ExoPlayer
+                // to display multiple unidentified "und. Stereo" duplicate tracks!
+                if (supportsSeparateAudio && primaryAudio != null) {
+                    AudioTrackHelper.attachAudioTrack(link, primaryAudio.stream.content, defaultHeaders)
                 }
                 generatedLinks.add(link)
+
+                // If the video has multiple audio languages, provide explicit alternative links for each other language:
+                if (supportsSeparateAudio && hasMultipleAudioLanguages) {
+                    val otherAudioTracks = distinctAudioTracks.filter { it.languageName != primaryAudio?.languageName }
+                    for (otherAudio in otherAudioTracks) {
+                        val otherLinkName = "$providerName $resLabel$fpsTag ($formatLabel) [${otherAudio.languageName}${otherAudio.trackTypeTag}]$vlcTag"
+                        val otherLink = newExtractorLink(
+                            source = providerName,
+                            name = otherLinkName,
+                            url = stream.content,
+                            type = ExtractorLinkType.VIDEO
+                        ) {
+                            this.headers = defaultHeaders
+                            this.quality = qualityNum
+                        }
+                        AudioTrackHelper.attachAudioTrack(otherLink, otherAudio.stream.content, defaultHeaders)
+                        generatedLinks.add(otherLink)
+                    }
+                }
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Video-only stream processing skipped or failed: ${t.message}")
@@ -338,9 +382,16 @@ object YoutubeLinkResolver {
             // so rank them below ExoPlayer-compatible WebM and DASH streams
             if (isExternalVlc) return 5000 + q
 
+            // Language preference boost: if a dubbed/specific language was preferred by user, prioritize it
+            val matchesPrefLang = !preferredSubtitleLang.isNullOrBlank() &&
+                !preferredSubtitleLang.equals("None", ignoreCase = true) &&
+                !preferredSubtitleLang.equals("Auto", ignoreCase = true) &&
+                link.name.contains("[$preferredSubtitleLang", ignoreCase = true)
+            val langBonus = if (matchesPrefLang) 60000 else 0
+
             if (targetHeight == null) {
                 // Auto preference: Adaptive DASH manifest first, then highest WebM
-                return when {
+                return langBonus + when {
                     link.type == ExtractorLinkType.DASH -> 150000
                     isWebm -> 20000 + q
                     else -> 10000 + q
@@ -348,7 +399,7 @@ object YoutubeLinkResolver {
             }
 
             // User chose a specific preferred resolution (e.g. 720p, 1080p, 1440p, 2160p):
-            return when {
+            return langBonus + when {
                 // Exact resolution match in WebM gets top priority
                 isWebm && q == targetHeight -> 100000
                 // DASH adaptive is safe second priority
