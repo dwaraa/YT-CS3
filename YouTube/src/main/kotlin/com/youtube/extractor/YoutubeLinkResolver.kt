@@ -299,7 +299,7 @@ object YoutubeLinkResolver {
                     source = providerName,
                     name = "$providerName [Audio Only] ${audio.fullLabel}",
                     url = audioUrl,
-                    type = ExtractorLinkType.AUDIO
+                    type = ExtractorLinkType.VIDEO
                 ) {
                     this.headers = defaultHeaders
                     this.quality = Qualities.Unknown.value
@@ -319,10 +319,11 @@ object YoutubeLinkResolver {
         // - Lower resolutions are safe fallbacks
         val isAudioOnlyMode = com.youtube.YoutubePreferences.audioOnlyMode
         fun scoreLink(link: ExtractorLink): Int {
-            if (isAudioOnlyMode && link.type == ExtractorLinkType.AUDIO) {
+            val isAudio = link.name.contains("[Audio Only]")
+            if (isAudioOnlyMode && isAudio) {
                 return 300000 + (if (link.name.contains("M4A")) 1000 else 500)
             }
-            if (link.type == ExtractorLinkType.AUDIO) return 1000
+            if (isAudio) return 1000
 
             if (link.type == ExtractorLinkType.M3U8) return 200000
             val isMute = link.name.contains("[Video Only]")

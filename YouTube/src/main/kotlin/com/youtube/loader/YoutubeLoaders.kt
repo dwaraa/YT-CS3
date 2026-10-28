@@ -160,7 +160,7 @@ object YoutubeLoaders {
                 val lines = comments.mapNotNull { item ->
                     val author = item.uploaderName ?: "User"
                     val text = item.commentText?.content?.trim()?.replace("\r", "")?.replace("\n", " ") ?: ""
-                    val likes = if (item.likeCount > 0) " (👍 ${YoutubeEpisodeMapper.formatCount(item.likeCount)})" else ""
+                    val likes = if (item.likeCount > 0) " (👍 ${YoutubeEpisodeMapper.formatCount(item.likeCount.toLong())})" else ""
                     if (text.isNotBlank()) "• @$author$likes: $text" else null
                 }
                 if (lines.isNotEmpty()) {
@@ -211,7 +211,7 @@ object YoutubeLoaders {
                 this.year = uploadYear
 
                 if (ryd != null && ryd.rating > 0.0) {
-                    this.rating = (ryd.rating * 20.0).toInt().coerceIn(1, 100)
+                    this.score = Score.from5(ryd.rating)
                 }
 
                 this.recommendations = info.relatedItems?.mapNotNull {
@@ -402,7 +402,7 @@ object YoutubeLoaders {
     suspend fun loadLocalPlaylist(api: MainAPI, playlistId: String): LoadResponse {
         val playlist = com.youtube.power.LocalPlaylistHelper.getPlaylist(playlistId)
             ?: com.youtube.power.LocalPlaylistHelper.getAllPlaylists().firstOrNull { it.id == playlistId }
-            ?: throw ErrorLoadingException("Local Playlist '$playlistId' not found")
+            ?: throw IllegalArgumentException("Local Playlist '$playlistId' not found")
 
         val episodes = playlist.items.mapIndexed { idx, item ->
             with(api) {

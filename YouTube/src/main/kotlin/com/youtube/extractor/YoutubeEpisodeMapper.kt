@@ -112,6 +112,9 @@ object YoutubeEpisodeMapper {
         }
     }
 
+    fun formatCount(count: Int): String = formatCount(count.toLong())
+
+
     /**
      * Formats seconds into HH:MM:SS or MM:SS chapter timestamps.
      */

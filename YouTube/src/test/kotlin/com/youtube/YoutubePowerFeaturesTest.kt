@@ -1,10 +1,13 @@
 package com.youtube
 
 import com.youtube.power.DiagnosticsHelper
+import com.youtube.power.DiagnosticsResult
 import com.youtube.power.LocalPlaylist
 import com.youtube.power.LocalPlaylistHelper
 import com.youtube.power.PlaylistItem
 import com.youtube.power.ReturnYouTubeDislikeHelper
+import com.youtube.power.RYDResponse
+import com.youtube.power.DislikeData
 import com.youtube.power.SponsorBlockHelper
 import com.youtube.power.SponsorSegment
 import org.junit.Assert.assertEquals
@@ -59,7 +62,7 @@ class YoutubePowerFeaturesTest {
 
     @Test
     fun testReturnYouTubeDislike_formatting() {
-        val ryd = ReturnYouTubeDislikeHelper.DislikeData(
+        val ryd = RYDResponse(
             id = "test_video_123",
             likes = 10000,
             dislikes = 500,
@@ -92,7 +95,7 @@ class YoutubePowerFeaturesTest {
 
         val parsed = ReturnYouTubeDislikeHelper.mapper.readValue(
             sampleJson,
-            ReturnYouTubeDislikeHelper.RYDResponse::class.java
+            RYDResponse::class.java
         )
 
         assertEquals("dQw4w9WgXcQ", parsed.id)
@@ -136,7 +139,7 @@ class YoutubePowerFeaturesTest {
 
     @Test
     fun testDiagnostics_generateMarkdownReport() {
-        val result = DiagnosticsHelper.DiagnosticsResult(
+        val result = DiagnosticsResult(
             newpipeVersion = "v0.26.5",
             newpipeVersionOk = true,
             consentCookieHealthy = true,
