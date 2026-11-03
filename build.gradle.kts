@@ -79,7 +79,7 @@ subprojects {
 
         cloudstream("com.lagradost:cloudstream3:pre-release")
         compileOnly("com.google.android.material:material:1.12.0")
-        compileOnly("androidx.appcompat:appcompat:1.7.0")
+        compileOnly("androidx.appcompat:appcompat:1.8.0")
         compileOnly("androidx.core:core-ktx:1.15.0")
 
         implementation(kotlin("stdlib"))
